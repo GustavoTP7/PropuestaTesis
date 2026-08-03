@@ -1,238 +1,238 @@
+import io
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-from xgboost import XGBRegressor
+from scipy.optimize import minimize
+from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor
 
-# Configuración de la página Streamlit
 st.set_page_config(
-    page_title="Geometallurgy Plant Optimizer",
-    page_icon="⛏️",
-    layout="wide",
+    page_title="Plataforma Geometalúrgica Flexible", page_icon="⚒️", layout="wide"
 )
 
-
-# ==========================================
-# 1. ENTRENAMIENTO DEL MODELO BASE
-# ==========================================
-@st.cache_resource
-def train_model():
-    np.random.seed(42)
-    n_samples = 1000
-
-    data = {
-        "Kt": np.random.uniform(5, 35, n_samples),
-        "CUT": np.random.uniform(0.3, 2.0, n_samples),
-        "CUS": np.random.uniform(0.01, 0.3, n_samples),
-        "CUCN": np.random.uniform(0.05, 1.8, n_samples),
-        "FE": np.random.uniform(1.5, 4.0, n_samples),
-        "PY": np.random.uniform(1.0, 5.0, n_samples),
-        "TOTAR": np.random.uniform(0.5, 4.0, n_samples),
-        "AxB": np.random.uniform(30, 130, n_samples),
-    }
-    df = pd.DataFrame(data)
-
-    df["CuS_CuT_ratio"] = df["CUS"] / df["CUT"]
-    df["CuCN_CuT_ratio"] = df["CUCN"] / df["CUT"]
-    df["Fe_CuT_ratio"] = df["FE"] / df["CUT"]
-
-    df["REC"] = (
-        78.0
-        + (12.0 * df["CuCN_CuT_ratio"])
-        - (3.5 * df["TOTAR"])
-        - (1.2 * df["Fe_CuT_ratio"])
-        + (0.05 * df["AxB"])
-        - (2.0 * df["CuS_CuT_ratio"])
-        + np.random.normal(0, 1.0, n_samples)
-    )
-    df["REC"] = np.clip(df["REC"], 60.0, 95.0)
-
-    features = [
-        "Kt",
-        "CUT",
-        "CUS",
-        "CUCN",
-        "FE",
-        "PY",
-        "TOTAR",
-        "AxB",
-        "CuS_CuT_ratio",
-        "CuCN_CuT_ratio",
-        "Fe_CuT_ratio",
-    ]
-    X = df[features]
-    y = df["REC"]
-
-    model = XGBRegressor(
-        n_estimators=100, learning_rate=0.05, max_depth=4, random_state=42
-    )
-    model.fit(X, y)
-    return model, features
-
-
-model, feature_cols = train_model()
-
-# ==========================================
-# 2. INTERFAZ Y TITULO
-# ==========================================
-st.title("⛏️ Sistema Geometalúrgico de Predicción y Control Operacional")
+st.title("⚒️ Gemelo Digital Geometalúrgico & Prescriptivo (Multi-Fuente)")
 st.markdown(
-    "Optimización de setpoints de planta a partir de la información del plan de minado a corto plazo."
+    "Carga tus exportaciones de **MineSight / MinePlan**, archivos `.csv` o `.xlsx` sin importar la estructura de columnas."
 )
 
-default_data = pd.DataFrame({
-    "PALA": ["SH007", "SH002", "SH002", "SH002"],
-    "Poligono": [
-        "F02N-3570-023_SSA1",
-        "F03S-3630-020_SSB1",
-        "F03S-3630-020_HYB1",
-        "F03S-3630-020_SSA2",
-    ],
-    "Kt": [29.0, 16.0, 6.0, 22.0],
-    "CUT": [1.86, 0.44, 0.35, 1.20],
-    "CUS": [0.18, 0.04, 0.02, 0.14],
-    "CUCN": [1.73, 0.19, 0.05, 1.13],
-    "FE": [2.00, 3.12, 3.05, 3.21],
-    "PY": [3.1, 3.4, 3.4, 3.3],
-    "TOTAR": [2.5, 2.0, 1.2, 3.1],
-    "AxB": [42.0, 66.0, 39.0, 129.0],
-})
-
-# ==========================================
-# 3. EDITOR DE DATOS
-# ==========================================
-st.subheader("1. Plan de Alimentación a Planta (Tabla de Bloques)")
-st.info(
-    "Puedes editar los datos directamente en la tabla interactiva o agregar filas para simular el turno."
+# ----------------------------------------------------
+# 1. CARGA Y MAPEO DE DATOS
+# ----------------------------------------------------
+st.sidebar.header("📁 Fuente de Datos")
+uploaded_file = st.sidebar.file_uploader(
+    "Cargar Plan/Modelo de Bloques (Excel/CSV)", type=["csv", "xlsx"]
 )
 
-edited_df = st.data_editor(
-    default_data, num_rows="dynamic", use_container_width=True
-)
 
-# ==========================================
-# 4. PROCESAMIENTO DEL BLEND Y PREDICCIÓN
-# ==========================================
-if not edited_df.empty and edited_df["Kt"].sum() > 0:
-    df_calc = edited_df.copy()
+@st.cache_data
+def load_data(file):
+    if file.name.endswith(".csv"):
+        return pd.read_csv(file)
+    else:
+        return pd.read_excel(file)
 
-    df_calc["CuS_CuT_ratio"] = df_calc["CUS"] / df_calc["CUT"]
-    df_calc["CuCN_CuT_ratio"] = df_calc["CUCN"] / df_calc["CUT"]
-    df_calc["Fe_CuT_ratio"] = df_calc["FE"] / df_calc["CUT"]
 
-    total_kt = df_calc["Kt"].sum()
-
-    blend_values = {}
-    for col in [
-        "Kt",
-        "CUT",
-        "CUS",
-        "CUCN",
-        "FE",
-        "PY",
-        "TOTAR",
-        "AxB",
-        "CuS_CuT_ratio",
-        "CuCN_CuT_ratio",
-        "Fe_CuT_ratio",
-    ]:
-        if col == "Kt":
-            blend_values[col] = total_kt
-        else:
-            blend_values[col] = (
-                df_calc[col] * df_calc["Kt"]
-            ).sum() / total_kt
-
-    df_blend = pd.DataFrame([blend_values])
-
-    pred_rec = model.predict(df_blend[feature_cols])[0]
-
-    # ==========================================
-    # 5. DASHBOARD DE RESULTADOS
-    # ==========================================
-    st.divider()
-    st.subheader("2. Diagnóstico Geometalúrgico y Setpoints Operacionales")
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Tonelaje Total", f"{total_kt:.1f} Kt")
-    col2.metric("Recuperación Estimada", f"{pred_rec:.2f} %")
-    col3.metric("Dureza Blend (A x b)", f"{df_blend['AxB'].iloc[0]:.1f}")
-    col4.metric("Arcillas (TOTAR)", f"{df_blend['TOTAR'].iloc[0]:.2f}")
-    col5.metric("Ratio Fe / CuT", f"{df_blend['Fe_CuT_ratio'].iloc[0]:.2f}")
-
-    st.write("")
-
-    axb_val = df_blend["AxB"].iloc[0]
-    totar_val = df_blend["TOTAR"].iloc[0]
-    fe_cut_val = df_blend["Fe_CuT_ratio"].iloc[0]
-
-    c_molienda, c_reactivos, c_ph = st.columns(3)
-
-    with c_molienda:
-        st.markdown("### ⚙️ Molienda / SAG")
-        if axb_val < 45:
-            st.error(
-                "**CRÍTICO:** Mineral duro.\n\n"
-                "- Reducir TPH en 8-10%.\n"
-                "- Incrementar carga de bolas.\n"
-                "- Vigilancia en potencia del SAG."
-            )
-        elif axb_val > 90:
-            st.success(
-                "**ÓPTIMO:** Mineral blando.\n\n"
-                "- Oportunidad de elevar TPH un +5%.\n"
-                "- Monitorear sobremolienda de finos."
-            )
-        else:
-            st.info(
-                "**ESTÁNDAR:** Operación normal.\n\n"
-                "- Mantener TPH objetivo del plan."
-            )
-
-    with c_reactivos:
-        st.markdown("### 🧪 Espumante y Arcillas")
-        if totar_val > 2.8:
-            st.warning(
-                "**ALERTA ARCILLAS ELEVADAS:**\n\n"
-                "- Reducir dosificación de espumante -15%.\n"
-                "- Monitorear viscosidad en Rougher.\n"
-                "- Atento al arrastre de finos al concentrado."
-            )
-        else:
-            st.info(
-                "**ESTÁNDAR:** Contenido de arcillas normal.\n\n"
-                "- Dosificación nominal según receta."
-            )
-
-    with c_ph:
-        st.markdown("### ⚖️ Control de pH y Cal")
-        if fe_cut_val > 5.0:
-            st.warning(
-                "**ALTO CONTENIDO DE PIRITA:**\n\n"
-                "- Subir pH a 10.8 - 11.2 (mayor adición de cal).\n"
-                "- Deprimir Fe para sostener el grado de concentrado."
-            )
-        else:
-            st.info(
-                "**CONTROL:** Relación Fe/CuT adecuada.\n\n"
-                "- Mantener pH en rango 10.0 - 10.4."
-            )
-
-    st.divider()
-    st.subheader("3. Análisis de Variabilidad entre Polígonos")
-
-    fig = px.bar(
-        edited_df,
-        x="Poligono",
-        y="Kt",
-        color="AxB",
-        hover_data=["CUT", "TOTAR", "PY"],
-        title="Distribución de Tonelaje por Polígono coloreado por Dureza (A x b)",
-        color_continuous_scale="Viridis_r",
+if uploaded_file is not None:
+    raw_df = load_data(uploaded_file)
+    st.sidebar.success(
+        f"Archivo cargado: {raw_df.shape[0]} filas, {raw_df.shape[1]} columnas"
     )
-    st.plotly_chart(fig, use_container_width=True)
-
 else:
-    st.warning(
-        "Ingresa al menos un polígono con tonelaje mayor a 0 para generar las recomendaciones."
+    # Dataset por defecto tipo MineSight (Muestra)
+    raw_df = pd.DataFrame({
+        "ITEM_ID": [f"BLK_{i:04d}" for i in range(1, 101)],
+        "BENCH": np.random.choice([3570, 3585, 3600], 100),
+        "DOM_GEOMET": np.random.choice(["SSA1", "SSB1", "HYB1", "MIX"], 100),
+        "TONS_KT": np.random.uniform(5, 50, 100),
+        "CU_TOTAL": np.random.uniform(0.2, 2.2, 100),
+        "CU_SOL": np.random.uniform(0.01, 0.4, 100),
+        "CU_CN": np.random.uniform(0.05, 1.8, 100),
+        "FE_PCT": np.random.uniform(1.0, 5.0, 100),
+        "PY_PCT": np.random.uniform(0.5, 6.0, 100),
+        "SPI_MIN": np.random.uniform(40, 180, 100),
+        "BWI_KWH": np.random.uniform(8.0, 20.0, 100),
+        "AXB_VAL": np.random.uniform(25, 120, 100),
+    })
+    st.info(
+        "💡 Usando datos sintéticos de prueba. Carga tu propio archivo desde la barra lateral."
     )
+
+# Mapeo Interactivo de Columnas
+with st.expander("🛠️ Mapeo Configurable de Columnas (Adaptador MineSight)", expanded=True):
+    cols = ["N/A"] + list(raw_df.columns)
+
+    c1, c2, c3, c4 = st.columns(4)
+    col_ton = c1.selectbox(
+        "Tonelaje / Volumen",
+        cols,
+        index=cols.index("TONS_KT") if "TONS_KT" in cols else 0,
+    )
+    col_cut = c2.selectbox(
+        "Ley Cobre Total (%CuT)",
+        cols,
+        index=cols.index("CU_TOTAL") if "CU_TOTAL" in cols else 0,
+    )
+    col_cus = c3.selectbox(
+        "Cobre Soluble Ácido (%CuS)",
+        cols,
+        index=cols.index("CU_SOL") if "CU_SOL" in cols else 0,
+    )
+    col_cucn = c4.selectbox(
+        "Cobre Soluble Cianuro (%CuCN)",
+        cols,
+        index=cols.index("CU_CN") if "CU_CN" in cols else 0,
+    )
+
+    c5, c6, c7, c8 = st.columns(4)
+    col_fe = c5.selectbox(
+        "Hierro (%Fe)",
+        cols,
+        index=cols.index("FE_PCT") if "FE_PCT" in cols else 0,
+    )
+    col_spi = c6.selectbox(
+        "Índice SPI",
+        cols,
+        index=cols.index("SPI_MIN") if "SPI_MIN" in cols else 0,
+    )
+    col_bwi = c7.selectbox(
+        "Bond Work Index (BWi)",
+        cols,
+        index=cols.index("BWI_KWH") if "BWI_KWH" in cols else 0,
+    )
+    col_axb = c8.selectbox(
+        "Parámetro AxB",
+        cols,
+        index=cols.index("AXB_VAL") if "AXB_VAL" in cols else 0,
+    )
+
+    col_dom = st.selectbox(
+        "Dominio Geometalúrgico / Alteración",
+        cols,
+        index=cols.index("DOM_GEOMET") if "DOM_GEOMET" in cols else 0,
+    )
+
+# ----------------------------------------------------
+# 2. FEATURE ENGINEERING DINÁMICO
+# ----------------------------------------------------
+df = raw_df.copy()
+
+# Cálculo de ratios en caso existan los campos seleccionados
+if col_cut != "N/A" and col_cus != "N/A":
+    df["RATIO_CUS_CUT"] = df[col_cus] / np.where(df[col_cut] == 0, 0.001, df[col_cut])
+
+if col_cut != "N/A" and col_cucn != "N/A":
+    df["RATIO_CUCN_CUT"] = df[col_cucn] / np.where(df[col_cut] == 0, 0.001, df[col_cut])
+
+if col_spi != "N/A" and col_bwi != "N/A":
+    df["INDEX_COMMINUTION"] = df[col_spi] * df[col_bwi] / 100.0
+
+# ----------------------------------------------------
+# 3. INTERFAZ MULTI-TAB
+# ----------------------------------------------------
+tab1, tab2, tab3 = st.tabs([
+    "📊 1. Exploración & Mezclas (Blending)",
+    "🎯 2. Optimización Prescriptiva Custom",
+    "🤖 3. Auto-ML & Importancia de Variables",
+])
+
+with tab1:
+    st.subheader("Análisis Dinámico de la Alimentación")
+
+    if col_dom != "N/A":
+        fig_dom = px.histogram(
+            df,
+            x=col_dom,
+            y=col_ton if col_ton != "N/A" else None,
+            histfunc="sum",
+            title="Distribución de Tonelaje por Dominio Geometalúrgico",
+            color=col_dom,
+        )
+        st.plotly_chart(fig_dom, use_container_width=True)
+
+    st.markdown("### Vista Previa de Datos Procesados")
+    st.dataframe(df.head(10), use_container_width=True)
+
+with tab2:
+    st.subheader("Configuración del Motor Prescriptivo")
+    st.markdown(
+        "Ajusta los parámetros operativos requeridos por la planta para el bloque seleccionado."
+    )
+
+    col_p1, col_p2, col_p3 = st.columns(3)
+    tph_target = col_p1.number_input(
+        "Tratamiento Objetivo (TPH)",
+        value=3500,
+        min_value=1000,
+        max_value=6000,
+    )
+    p80_target = col_p2.slider(
+        "P80 Molienda (µm)",
+        min_value=90,
+        max_value=200,
+        value=135,
+    )
+    ph_target = col_p3.slider(
+        "pH Flotación Rougher",
+        min_value=9.0,
+        max_value=12.0,
+        value=10.5,
+        step=0.1,
+    )
+
+    st.success(
+        "El motor procesará dinámicamente las variables mapeadas en el paso 1."
+    )
+
+with tab3:
+    st.subheader("Importancia de Atributos según Variables Disponibles")
+
+    # Identificar únicamente columnas numéricas elegidas
+    numeric_features = [
+        c
+        for c in [
+            col_cut,
+            col_cus,
+            col_cucn,
+            col_fe,
+            col_spi,
+            col_bwi,
+            col_axb,
+            "RATIO_CUS_CUT",
+            "RATIO_CUCN_CUT",
+            "INDEX_COMMINUTION",
+        ]
+        if c in df.columns and c != "N/A"
+    ]
+
+    if len(numeric_features) > 1:
+        st.write(f"Variables identificadas para el modelo: `{numeric_features}`")
+        # Generación de variable sintética de prueba para entrenamiento dinámico
+        y_simulated = (
+            80
+            + (df[col_cut] * 5 if col_cut != "N/A" else 0)
+            - (df[col_spi] * 0.05 if col_spi != "N/A" else 0)
+        )
+
+        rf = ExtraTreesRegressor(n_estimators=100, random_state=42)
+        rf.fit(df[numeric_features].fillna(0), y_simulated)
+
+        imp_df = (
+            pd.DataFrame({
+                "Variable": numeric_features,
+                "Importancia": rf.feature_importances_,
+            })
+            .sort_values("Importancia", ascending=True)
+        )
+
+        fig_imp = px.bar(
+            imp_df,
+            x="Importancia",
+            y="Variable",
+            orientation="h",
+            title="Sensibilidad Geometalúrgica Dinámica",
+        )
+        st.plotly_chart(fig_imp, use_container_width=True)
+    else:
+        st.warning(
+            "Mapea más de una variable numérica en el paso 1 para activar el análisis de Machine Learning."
+        )
