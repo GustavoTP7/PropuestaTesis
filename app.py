@@ -1,12 +1,3 @@
-Aquí tienes una aplicación completa y funcional con **Streamlit** que incluye la interfaz gráfica para subir los datos del turno (o usar los datos por defecto de tu imagen), calcular las métricas ponderadas, predecir la recuperación con XGBoost y mostrar el panel de control con los setpoints operacionales.
-
-Para ejecutarlo localmente:
-
-1. Instala las librerías: `pip install streamlit pandas numpy xgboost plotly`
-2. Guarda el código en un archivo llamado `app.py`.
-3. Ejecuta en tu terminal: `streamlit run app.py`
-
-```python
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -45,7 +36,6 @@ def train_model():
     df["CuCN_CuT_ratio"] = df["CUCN"] / df["CUT"]
     df["Fe_CuT_ratio"] = df["FE"] / df["CUT"]
 
-    # Simulación de la respuesta metalúrgica
     df["REC"] = (
         78.0
         + (12.0 * df["CuCN_CuT_ratio"])
@@ -90,7 +80,6 @@ st.markdown(
     "Optimización de setpoints de planta a partir de la información del plan de minado a corto plazo."
 )
 
-# Datos iniciales (Turno 13A por defecto)
 default_data = pd.DataFrame({
     "PALA": ["SH007", "SH002", "SH002", "SH002"],
     "Poligono": [
@@ -127,14 +116,12 @@ edited_df = st.data_editor(
 if not edited_df.empty and edited_df["Kt"].sum() > 0:
     df_calc = edited_df.copy()
 
-    # Ratios individuales por polígono
     df_calc["CuS_CuT_ratio"] = df_calc["CUS"] / df_calc["CUT"]
     df_calc["CuCN_CuT_ratio"] = df_calc["CUCN"] / df_calc["CUT"]
     df_calc["Fe_CuT_ratio"] = df_calc["FE"] / df_calc["CUT"]
 
     total_kt = df_calc["Kt"].sum()
 
-    # Ponderación por tonelaje para la mezcla global
     blend_values = {}
     for col in [
         "Kt",
@@ -158,7 +145,6 @@ if not edited_df.empty and edited_df["Kt"].sum() > 0:
 
     df_blend = pd.DataFrame([blend_values])
 
-    # Predicción con XGBoost
     pred_rec = model.predict(df_blend[feature_cols])[0]
 
     # ==========================================
@@ -167,7 +153,6 @@ if not edited_df.empty and edited_df["Kt"].sum() > 0:
     st.divider()
     st.subheader("2. Diagnóstico Geometalúrgico y Setpoints Operacionales")
 
-    # Métricas principales
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Tonelaje Total", f"{total_kt:.1f} Kt")
     col2.metric("Recuperación Estimada", f"{pred_rec:.2f} %")
@@ -177,7 +162,6 @@ if not edited_df.empty and edited_df["Kt"].sum() > 0:
 
     st.write("")
 
-    # Prescripciones operativas
     axb_val = df_blend["AxB"].iloc[0]
     totar_val = df_blend["TOTAR"].iloc[0]
     fe_cut_val = df_blend["Fe_CuT_ratio"].iloc[0]
@@ -234,7 +218,6 @@ if not edited_df.empty and edited_df["Kt"].sum() > 0:
                 "- Mantener pH en rango 10.0 - 10.4."
             )
 
-    # Gráfico de variabilidad por polígono
     st.divider()
     st.subheader("3. Análisis de Variabilidad entre Polígonos")
 
@@ -253,5 +236,3 @@ else:
     st.warning(
         "Ingresa al menos un polígono con tonelaje mayor a 0 para generar las recomendaciones."
     )
-
-```
