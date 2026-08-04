@@ -1,244 +1,205 @@
-import numpy as np
+import streamlit as st
 import pandas as pd
+import numpy as np
+import xgboost as xgb
+from catboost import CatBoostRegressor
+import shap
+from sklearn.model_selection import KFold, cross_val_predict
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
+from sklearn.cluster import KMeans
+from imblearn.over_sampling import SMOTE
+import optuna 
 import plotly.express as px
 import plotly.graph_objects as go
-import streamlit as st
-from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor
-from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
 
-st.set_page_config(
-    page_title="Sistema Geometalúrgico MineStar", page_icon="⚒️", layout="wide"
-)
+# --- CONFIGURACIÓN DE INTERFAZ PROFESIONAL ---
+st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
 
-st.title("⚒️ Gemelo Digital Geometalúrgico - Integración MineStar")
-st.markdown(
-    "Procesamiento directo de reportes operacionales de **MineStar**, modelos de bloques y control de planta."
-)
+@st.cache_data
+def cargar_datos(archivo):
+    try:
+        df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
+        df.columns = df.columns.astype(str).str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Error en la ingesta de datos: {e}")
+        return None
 
-# ----------------------------------------------------
-# 1. CARGA Y LIMPIEZA NATIVA DE MINESTAR
-# ----------------------------------------------------
-st.sidebar.header("📁 Carga de Datos MineStar")
-uploaded_file = st.sidebar.file_uploader(
-    "Subir archivo MineStar (.xlsx / .csv)", type=["xlsx", "csv"]
-)
+# --- TÍTULO COMERCIAL ---
+st.title("💎 Geomet Twin Pro: Inteligencia Operacional para Flotación")
+st.markdown("""
+**Sistema Inteligente de Soporte a la Decisión (DSS)** basado en registros históricos operacionales. 
+Este Digital Twin integra **Optimización Bayesiana**, **Dominios Geometalúrgicos** y **IA Explicable**.
+""")
 
+# --- BARRA LATERAL: ARQUITECTURA DE DATOS Y MODELO ---
+with st.sidebar:
+    st.header("⚙️ 1. Ingesta y Refinamiento de Datos")
+    archivo = st.file_uploader("Subir registros históricos (CSV/XLSX)", type=["csv", "xlsx"])
+    
+    modo_ruido = st.radio("Mitigación de Outliers [IQR]:", ["Data Original", "Depuración por Rango Intercuartílico"])
+    
+    # Mejora: Definición de Unidades Geometalúrgicas (UGM) [3, 4]
+    n_clusters = st.slider("Identificación de Dominios (Clusters):", 1, 5, 1)
 
-def load_and_clean_minestar(file):
-    if file.name.endswith(".csv"):
-        df = pd.read_csv(file)
+    st.header("🤖 2. Configuración del Cerebro IA")
+    tipo_modelo = st.selectbox("Algoritmo de Aprendizaje:", ["XGBoost", "CatBoost"])
+    
+    # Mejora: Optimización Heurística de Hiperparámetros [5, 6]
+    metodo_tuning = st.radio("Ajuste de Parámetros:", ["Manual", "Auto-Tuning (TPE/Optuna)"])
+    
+    if metodo_tuning == "Manual":
+        n_estimators = st.slider("Iteraciones de Boosting (Árboles):", 50, 1000, 100)
+        lr = st.slider("Tasa de Aprendizaje (Learning Rate):", 0.01, 0.3, 0.05)
     else:
-        df = pd.read_excel(file)
+        n_trials = st.number_input("Ciclos de Optimización Bayesiana:", 10, 50, 20)
+    
+    # Mejora: Balanceo de muestra mediante SMOTE [5, 7]
+    balancear = st.checkbox("Balanceo Sintético de Casos Críticos (SMOTE)")
 
-    # Filtrar filas de totales o notas al pie generadas por MineStar
-    if "Shift" in df.columns:
-        df = df[df["Shift"].notna()]
-        df = df[~df["Shift"].astype(str).str.startswith("Total")]
-        df = df[~df["Shift"].astype(str).str.startswith("Applied filters")]
+if archivo is not None:
+    df_raw = cargar_datos(archivo)
+    
+    if df_raw is not None:
+        # Selección de columnas numéricas y eliminación de nulos [8]
+        df = df_raw.select_dtypes(include=[np.number]).dropna()
+        
+        # Filtro de Outliers por IQR [8]
+        if modo_ruido == "Depuración por Rango Intercuartílico":
+            Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
+            IQR = Q3 - Q1
+            df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
+            
+        # Lógica de Dominios Geometalúrgicos (K-Means) [3]
+        if n_clusters > 1:
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+            df['Dominio_GMD'] = kmeans.fit_predict(df)
+            
+        columnas = df.columns.tolist()
+        
+        with st.sidebar:
+            st.header("🎯 3. Definición de Variables")
+            target = st.selectbox("Variable Objetivo (Respuesta):", columnas, index=len(columnas)-1)
+            features = st.multiselect("Variables Manipuladas y Perturbaciones:", [c for c in columnas if c != target], 
+                                     default=[c for c in columnas if c != target])
+            
+        if features and target:
+            X, y = df[features], df[target]
 
-    if "Mining Block" in df.columns:
-        df = df[df["Mining Block"].notna()]
+            # Lógica SMOTE para balanceo de casos de baja recuperación [5]
+            if balancear:
+                y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
+                sm = SMOTE(random_state=42, k_neighbors=min(2, len(X)-1))
+                X, _ = sm.fit_resample(X, y_disc)
+                y = df.loc[X.index, target]
 
-    # Convertir columnas numéricas de forma segura
-    numeric_cols = [
-        "Payload",
-        "CuT",
-        "CuS",
-        "CuCN",
-        "MoT",
-        "Fe",
-        "S",
-        "SagTph",
-        "pltTph",
-        "bmTph",
-        "RecCu",
-        "RecMo",
-        "CPY",
-        "CC",
-        "CV",
-        "BN",
-        "PY",
-        "Cao_18",
-        "Mont_18",
-        "Filo_18",
-        "BWI",
-        "AXB23",
-        "UCS",
-    ]
+            # --- MOTOR DE OPTIMIZACIÓN BAYESIANA (OPTUNA/TPE) [9] ---
+            if metodo_tuning == "Auto-Tuning (TPE/Optuna)":
+                def objective(trial):
+                    p = {
+                        'n_estimators': trial.suggest_int('n_estimators', 50, 1000),
+                        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+                        'max_depth': trial.suggest_int('max_depth', 3, 10)
+                    }
+                    m = xgb.XGBRegressor(**p, random_state=42) if tipo_modelo == "XGBoost" else CatBoostRegressor(**p, verbose=0)
+                    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+                    y_p = cross_val_predict(m, X, y, cv=kf)
+                    return np.sqrt(mean_squared_error(y, y_p))
 
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+                study = optuna.create_study(direction='minimize')
+                study.optimize(objective, n_trials=n_trials)
+                best_params = study.best_params
+            else:
+                best_params = {'n_estimators': n_estimators, 'learning_rate': lr}
 
-    return df
+            # Entrenamiento Final con K-Fold [10, 11]
+            model = xgb.XGBRegressor(**best_params, random_state=42) if tipo_modelo == "XGBoost" else CatBoostRegressor(**best_params, verbose=0)
+            kf = KFold(n_splits=5, shuffle=True, random_state=42)
+            y_pred = cross_val_predict(model, X, y, cv=kf)
+            model.fit(X, y)
 
+            # Métricas de Fidelidad Predictiva [11, 12]
+            r2, mae, rmse = r2_score(y, y_pred), mean_absolute_error(y, y_pred), np.sqrt(mean_squared_error(y, y_pred))
+            mape = mean_absolute_percentage_error(y, y_pred) * 100
+            
+            # --- TABS CON TÍTULOS COMERCIALES ---
+            tab1, tab2, tab3, tab4, tab5 = st.tabs([
+                "📈 Calidad de Datos", 
+                "🎯 Score de Precisión", 
+                "🎛️ Simulador de Escenarios", 
+                "🚨 Monitor de Desviaciones",
+                "🧠 Transparencia IA (SHAP)"
+            ])
 
-if uploaded_file is not None:
-    df_raw = load_and_clean_minestar(uploaded_file)
-    st.sidebar.success(f"Cargados {len(df_raw)} registros de MineStar")
+            with tab1:
+                st.subheader("Filtro y Refinamiento de registros históricos")
+                c1, c2 = st.columns(2)
+                with c1:
+                    var_v = st.selectbox("Correlación Bivariante vs " + target, features)
+                    st.plotly_chart(px.scatter(df, x=var_v, y=target, trendline="ols", title=f"Tendencia: {var_v}"), use_container_width=True)
+                with c2:
+                    st.plotly_chart(px.imshow(df[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r", title="Mapa de Correlación Multivariante"), use_container_width=True)
+
+            with tab2:
+                st.subheader("Evaluación de la Fidelidad Predictiva")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Confiabilidad (R²)", f"{r2:.3f}")
+                m2.metric("Error Absoluto (MAE)", f"{mae:.3f}")
+                m3.metric("Riesgo (RMSE)", f"{rmse:.3f}")
+                m4.metric("Error Relativo (MAPE)", f"{mape:.2f}%")
+                
+                c_rp, c_im = st.columns(2)
+                with c_rp:
+                    fig_rp = px.scatter(x=y, y=y_pred, labels={'x': 'Realidad Operativa', 'y': 'Predicción Digital'}, title="Fidelidad Real vs Digital")
+                    fig_rp.add_shape(type="line", x0=y.min(), y0=y.min(), x1=y.max(), y1=y.max(), line=dict(color="Red", dash="dash"))
+                    st.plotly_chart(fig_rp, use_container_width=True)
+                with c_im:
+                    importances = model.feature_importances_ if tipo_modelo == "XGBoost" else model.get_feature_importance()
+                    df_imp = pd.DataFrame({'Atributo': features, 'Impacto': importances}).sort_values('Impacto', ascending=True)
+                    st.plotly_chart(px.bar(df_imp, x='Impacto', y='Atributo', orientation='h', title="Ranking de Relevancia de Atributos"), use_container_width=True)
+
+            with tab3:
+                st.subheader("Simulación Prescriptiva: Análisis 'What-If'")
+                st.markdown("Ajuste los **Set-Points** operativos para previsualizar la respuesta metalúrgica:")
+                
+                inputs_sim = {}
+                cols_sim = st.columns(3)
+                for idx, col_name in enumerate(features):
+                    with cols_sim[idx % 3]:
+                        inputs_sim[col_name] = st.slider(f"{col_name}:", float(df[col_name].min()), float(df[col_name].max()), float(df[col_name].mean()))
+                        
+                df_sim_input = pd.DataFrame([inputs_sim])
+                pred_sim = model.predict(df_sim_input)
+                
+                st.divider()
+                # MEJORA: OPTIMIZACIÓN PROACTIVA DE SET-POINTS [13, 14]
+                if st.button("🚀 Calcular Configuración de Máxima Recuperación"):
+                    best_val, best_cfg = -1, None
+                    for _ in range(300):
+                        rand_cfg = {c: np.random.uniform(df[c].min(), df[c].max()) for c in features}
+                        p_rand = model.predict(pd.DataFrame([rand_cfg]))
+                        if p_rand > best_val: best_val, best_cfg = p_rand, rand_cfg
+                    st.success(f"Potencial Máximo Identificado: {best_val:.2f}%")
+                    st.json(best_cfg)
+
+                st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
+
+            with tab4:
+                st.subheader("Detección de Anomalías y Auditoría de Turnos [FDI]")
+                df_audit = df.copy()
+                df_audit['Error'] = np.abs(y - y_pred)
+                def cat_error(e): return "🟢 Normal" if e <= mae else "🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía"
+                df_audit['Estado'] = df_audit['Error'].apply(cat_error)
+                st.plotly_chart(px.scatter(df_audit, x=df_audit.index, y='Error', color='Estado', title="Protocolo de Detección e Isolation de Fallas (Fault Detection)"), use_container_width=True)
+
+            with tab5:
+                st.subheader("Interpretabilidad mediante IA Explicable (XAI)")
+                st.markdown("Cuantificación del impacto de cada variable mediante **Valores de Shapley** [15, 16]:")
+                explainer = shap.Explainer(model, X)
+                shap_v = explainer(X)
+                fig_s, ax = plt.subplots()
+                shap.summary_plot(shap_v, X, show=False)
+                st.pyplot(fig_s)
 else:
-    st.info(
-        "💡 Por favor sube tu archivo `MineStar 30-10-2025.xlsx` para activar el panel."
-    )
-    st.stop()
-
-# ----------------------------------------------------
-# 2. FEATURE ENGINEERING GEOMETALÚRGICO
-# ----------------------------------------------------
-df = df_raw.copy()
-
-# Ratios de Cobre Soluble
-if "CuT" in df.columns and "CuS" in df.columns:
-    df["Ratio_CuS_CuT"] = df["CuS"] / np.where(df["CuT"] == 0, 0.001, df["CuT"])
-
-if "CuT" in df.columns and "CuCN" in df.columns:
-    df["Ratio_CuCN_CuT"] = df["CuCN"] / np.where(
-        df["CuT"] == 0, 0.001, df["CuT"]
-    )
-
-# Ratios Mineralógicos (Sulfuros Secundarios vs Primarios)
-if all(col in df.columns for col in ["CC", "CV", "CPY", "BN"]):
-    sec_cu = df["CC"].fillna(0) + df["CV"].fillna(0)
-    prim_cu = df["CPY"].fillna(0) + df["BN"].fillna(0)
-    df["Ratio_Sec_Prim_Cu"] = sec_cu / np.where(prim_cu == 0, 0.001, prim_cu)
-
-# Total Arcillas
-clay_cols = [c for c in ["Cao_18", "Mont_18", "Filo_18"] if c in df.columns]
-if clay_cols:
-    df["Total_Clays"] = df[clay_cols].sum(axis=1)
-
-# Ratio Pirita / Cobre
-if "PY" in df.columns and "CuT" in df.columns:
-    df["Ratio_PY_CuT"] = df["PY"] / np.where(df["CuT"] == 0, 0.001, df["CuT"])
-
-# ----------------------------------------------------
-# 3. INTERFAZ INTERACTIVA Y MODELADO
-# ----------------------------------------------------
-tab1, tab2, tab3 = st.tabs([
-    "📈 1. Resumen de Turno & Balance",
-    "🤖 2. Modelo Predictivo (Recuperación / TPH)",
-    "🎛️ 3. Sensibilidad Mineralógica",
-])
-
-with tab1:
-    st.subheader("📊 Métricas Consolidadas del Reporte MineStar")
-
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric(
-        "Tonelaje Total (t)",
-        f"{df['Payload'].sum():,.1f}" if "Payload" in df.columns else "N/A",
-    )
-    m2.metric(
-        "Ley Promedio %CuT",
-        f"{df['CuT'].mean():.3f}%" if "CuT" in df.columns else "N/A",
-    )
-    m3.metric(
-        "Tratamiento Promedio (TPH)",
-        f"{df['pltTph'].mean():,.1f}" if "pltTph" in df.columns else "N/A",
-    )
-    m4.metric(
-        "Recuperación Promedio %RecCu",
-        f"{df['RecCu'].mean():.2f}%" if "RecCu" in df.columns else "N/A",
-    )
-
-    st.markdown("### Comportamiento por Bloque de Minado")
-    fig_block = px.bar(
-        df,
-        x="Mining Block",
-        y="Payload",
-        color="CuT" if "CuT" in df.columns else None,
-        hover_data=["pltTph", "RecCu"] if "pltTph" in df.columns else [],
-        title="Tonelaje por Bloque de Minado y Ley de Cobre Total (%CuT)",
-        labels={"Payload": "Tonelaje (t)", "CuT": "%CuT"},
-    )
-    st.plotly_chart(fig_block, use_container_width=True)
-
-with tab2:
-    st.subheader("🤖 Entrenamiento de Modelo con Datos de MineStar")
-
-    target_var = st.selectbox(
-        "Seleccionar Variable Objetivo a Predecir",
-        ["RecCu", "pltTph", "SagTph"],
-        index=0,
-    )
-
-    # Identificar predictors numéricos
-    features = [
-        c
-        for c in [
-            "CuT",
-            "CuS",
-            "CuCN",
-            "MoT",
-            "Fe",
-            "S",
-            "CPY",
-            "CC",
-            "CV",
-            "BN",
-            "PY",
-            "Total_Clays",
-            "Ratio_CuS_CuT",
-            "Ratio_Sec_Prim_Cu",
-            "BWI",
-            "AXB23",
-            "UCS",
-        ]
-        if c in df.columns
-    ]
-
-    valid_df = df.dropna(subset=[target_var] + features)
-
-    if len(valid_df) >= 5:
-        X = valid_df[features]
-        y = valid_df[target_var]
-
-        model = GradientBoostingRegressor(
-            n_estimators=50, random_state=42, max_depth=3
-        )
-        model.fit(X, y)
-
-        imp_df = (
-            pd.DataFrame(
-                {"Variable": features, "Importancia": model.feature_importances_}
-            )
-            .sort_values("Importancia", ascending=True)
-        )
-
-        fig_imp = px.bar(
-            imp_df,
-            x="Importancia",
-            y="Variable",
-            orientation="h",
-            title=f"Importancia de Variables para {target_var}",
-            color="Importancia",
-            color_continuous_scale="Viridis",
-        )
-        st.plotly_chart(fig_imp, use_container_width=True)
-    else:
-        st.warning(
-            "Se requieren más registros completos en la muestra para entrenar el modelo predictivo."
-        )
-
-with tab3:
-    st.subheader("🔍 Impacto de Arcillas y Mineralogía en el Tratamiento")
-
-    if "Total_Clays" in df.columns and "pltTph" in df.columns:
-        fig_scatter = px.scatter(
-            df,
-            x="Total_Clays",
-            y="pltTph",
-            color="RecCu" if "RecCu" in df.columns else None,
-            size="Payload" if "Payload" in df.columns else None,
-            hover_name="Mining Block",
-            title="Efecto del Contenido de Arcillas (%Filosilicatos + Caolín + Montmorillonita) sobre el TPH",
-            labels={
-                "Total_Clays": "Arcillas Totales (%)",
-                "pltTph": "Tratamiento Planta (TPH)",
-            },
-            trendline="ols",
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-
-    st.markdown("### Tabla Transaccional Procesada")
-    st.dataframe(df, use_container_width=True)
+    st.info("👈 Por favor, cargue el dataset histórico en el panel lateral para iniciar el Digital Twin.")
