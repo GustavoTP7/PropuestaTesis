@@ -1,6 +1,11 @@
 streamlit
 pandas
 numpy
-plotly
+xgboost
+catboost
+shap
 scikit-learn
-openpyxl
+imbalanced-learn
+optuna
+plotly
+matplotlib
