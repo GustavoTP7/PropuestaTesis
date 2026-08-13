@@ -11,6 +11,7 @@ from imblearn.over_sampling import SMOTE
 import plotly.express as px
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
+import time
 
 # --- CONFIGURACIÓN DE INTERFAZ PROFESIONAL ---
 st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
@@ -28,7 +29,7 @@ def cargar_datos(archivo):
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional para Flotación")
 st.markdown("""
 **Digital Twin de Soporte a la Decisión (DSS)**. 
-Optimizado para alta velocidad mediante **Dominios Automáticos** y **Early Stopping**.
+Optimizado para alta velocidad, control de recursos y monitoreo de procesos en tiempo real.
 """)
 
 # --- BARRA LATERAL ---
@@ -39,80 +40,103 @@ with st.sidebar:
     
     st.header("🤖 2. Motor de IA Autónomo")
     tipo_modelo = st.selectbox("Seleccionar Algoritmo:", ["XGBoost", "CatBoost"])
-    st.info("💡 **Configuración Automática:** El sistema determinará la tasa de aprendizaje y el número de árboles mediante lógica de parada temprana (Early Stopping).")
-    
     balancear = st.checkbox("Balanceo de Casos Críticos (SMOTE)")
+
+    st.divider()
+    # NUEVO: BOTÓN DE INICIO PARA CONTROLAR EL CONSUMO DE RAM
+    ejecutar = st.button("🚀 Iniciar Simulación Digital", use_container_width=True)
 
 if archivo is not None:
     df_raw = cargar_datos(archivo)
     
     if df_raw is not None:
-        df = df_raw.select_dtypes(include=[np.number]).dropna()
+        # Selección de columnas numéricas
+        df_num = df_raw.select_dtypes(include=[np.number]).dropna()
+        columnas = df_num.columns.tolist()
         
-        if modo_ruido == "Depuración por Rango Intercuartílico":
-            Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
-            IQR = Q3 - Q1
-            df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
-            
-        # --- LÓGICA DE DOMINIOS AUTOMÁTICA (Silhouette Score) ---
-        st.sidebar.subheader("📍 Identificación de Dominios")
-        best_k, best_score = 1, -1
-        # Evaluamos automáticamente el mejor número de clusters basado en silueta [1]
-        for k in range(2, 6):
-            if len(df) > k:
-                km = KMeans(n_clusters=k, random_state=42, n_init=10)
-                labels = km.fit_predict(df)
-                score = silhouette_score(df, labels)
-                if score > best_score:
-                    best_score, best_k = score, k
-        
-        kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
-        df['Dominio_GMD'] = kmeans_final.fit_predict(df)
-        st.sidebar.success(f"Configuración Óptima: {best_k} Dominios Geometalúrgicos detectados.")
-
-        columnas = df.columns.tolist()
         with st.sidebar:
-            st.header("🎯 3. Variables")
-            target = st.selectbox("Respuesta (Y):", columnas, index=len(columnas)-2)
-            features = st.multiselect("Predictores (X):", [c for c in columnas if c not in [target, 'Dominio_GMD']], 
-                                     default=[c for c in columnas if c not in [target, 'Dominio_GMD']])
-            
-        if features and target:
-            X, y = df[features], df[target]
+            st.header("🎯 3. Configuración de Variables")
+            target = st.selectbox("Respuesta (Y):", columnas, index=len(columnas)-1)
+            features = st.multiselect("Predictores (X):", [c for c in columnas if c != target], 
+                                     default=[c for c in columnas if c != target])
 
+        # Solo se ejecuta el procesamiento pesado si se pulsa el botón
+        if ejecutar:
+            # --- BARRA DE PROGRESO ---
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            # FASE 1: Limpieza y Outliers
+            status_text.text("Fase 1/5: Refinando registros históricos...")
+            df = df_num.copy()
+            if modo_ruido == "Depuración por Rango Intercuartílico":
+                Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
+                IQR = Q3 - Q1
+                df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
+            progress_bar.progress(20)
+
+            # FASE 2: Dominios Automáticos
+            status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas (UGM)...")
+            best_k, best_score = 2, -1
+            # Se optimiza el número de clusters dinámicamente
+            for k in range(2, 6):
+                if len(df) > k:
+                    km = KMeans(n_clusters=k, random_state=42, n_init=10)
+                    labels = km.fit_predict(df)
+                    score = silhouette_score(df, labels)
+                    if score > best_score:
+                        best_score, best_k = score, k
+            
+            kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+            df['Dominio_GMD'] = kmeans_final.fit_predict(df)
+            progress_bar.progress(40)
+
+            # FASE 3: Balanceo SMOTE
+            X, y = df[features], df[target]
             if balancear:
+                status_text.text("Fase 3/5: Aplicando balanceo sintético SMOTE...")
                 y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
                 sm = SMOTE(random_state=42, k_neighbors=min(2, len(X)-1))
                 X, _ = sm.fit_resample(X, y_disc)
                 y = df.loc[X.index, target]
+            progress_bar.progress(60)
 
-            # --- ENTRENAMIENTO AUTOMÁTICO (EARLY STOPPING) ---
-            # Dividimos para validación interna de la IA
+            # FASE 4: Entrenamiento IA (Early Stopping)
+            status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
             if tipo_modelo == "XGBoost":
                 model = xgb.XGBRegressor(n_estimators=1000, learning_rate=0.05, max_depth=6, random_state=42)
-                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False) # Early stopping implícito por defecto en versiones nuevas
+                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
             else:
                 model = CatBoostRegressor(iterations=1000, learning_rate=0.05, depth=6, random_state=42, verbose=0, early_stopping_rounds=50)
                 model.fit(X_train, y_train, eval_set=(X_val, y_val))
+            progress_bar.progress(80)
 
-            # Validación Cruzada Rápida (K=5)
+            # FASE 5: Validación Cruzada y Métricas
+            status_text.text("Fase 5/5: Validando fidelidad predictiva (K-Fold)...")
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
             y_pred = cross_val_predict(model, X, y, cv=kf)
             
-            # Métricas
             r2, mae, rmse = r2_score(y, y_pred), mean_absolute_error(y, y_pred), np.sqrt(mean_squared_error(y, y_pred))
             mape = mean_absolute_percentage_error(y, y_pred) * 100
             
+            progress_bar.progress(100)
+            status_text.success("✅ Simulación Digital Completada con Éxito.")
+            time.sleep(1)
+            status_text.empty()
+            progress_bar.empty()
+
+            # --- PESTAÑAS DE RESULTADOS ---
             tab1, tab2, tab3, tab4, tab5 = st.tabs([
                 "📈 Calidad de Datos", "🎯 Score de Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 SHAP"
             ])
 
             with tab1:
                 st.subheader("Filtro y Refinamiento Multivariante")
+                st.write(f"Dominios detectados: **{best_k} UGM**")
                 c1, c2 = st.columns(2)
-                with c1: st.plotly_chart(px.scatter(df, x=features, y=target, color='Dominio_GMD', title="Distribución por Dominios"), use_container_width=True)
+                with c1: st.plotly_chart(px.scatter(df, x=features if features else None, y=target, color='Dominio_GMD', title="Distribución por Dominios"), use_container_width=True)
                 with c2: st.plotly_chart(px.imshow(df[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r", title="Correlaciones"), use_container_width=True)
 
             with tab2:
@@ -134,9 +158,9 @@ if archivo is not None:
                 
                 pred_sim = model.predict(pd.DataFrame([inputs_sim]))
                 
-                if st.button("🚀 Maximizar Recuperación (Optimización Estocástica)"):
+                if st.button("🚀 Maximizar Recuperación"):
                     best_v, best_cfg = -1, None
-                    for _ in range(500):
+                    for _ in range(300):
                         rand_cfg = {c: np.random.uniform(df[c].min(), df[c].max()) for c in features}
                         p = model.predict(pd.DataFrame([rand_cfg]))
                         if p > best_v: best_v, best_cfg = p, rand_cfg
@@ -147,18 +171,20 @@ if archivo is not None:
             with tab4:
                 st.subheader("Detección e Isolation de Fallas (FDI)")
                 df_audit = df.copy()
-                df_audit['Error'] = np.abs(y - y_pred)
+                df_audit['Error'] = np.abs(df[target] - y_pred[:len(df)])
                 df_audit['Estado'] = df_audit['Error'].apply(lambda e: "🟢 Normal" if e <= mae else "🔴 Anomalía")
                 st.plotly_chart(px.scatter(df_audit, x=df_audit.index, y='Error', color='Estado', title="Protocolo FDI por Turno"), use_container_width=True)
 
             with tab5:
                 st.subheader("Interpretabilidad XAI")
-                # Submuestreo para rapidez en SHAP
                 X_shap = X.sample(min(100, len(X)))
                 explainer = shap.Explainer(model, X_shap)
                 shap_v = explainer(X_shap)
                 fig_s, ax = plt.subplots()
                 shap.summary_plot(shap_v, X_shap, show=False)
                 st.pyplot(fig_s)
+        else:
+            st.info("💡 Configure los parámetros en el panel izquierdo y pulse 'Iniciar Simulación Digital' para procesar los datos.")
+
 else:
-    st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin de alta velocidad.")
+    st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
