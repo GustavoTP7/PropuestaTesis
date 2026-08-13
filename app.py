@@ -30,7 +30,7 @@ def cargar_datos(archivo):
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional")
 st.markdown("""
 **Digital Twin de Soporte a la Decisión (DSS)**. 
-Optimización prescriptiva basada en Unidades Geometalúrgicas (UGM) y aprendizaje profundo.
+Optimización prescriptiva, caracterización de UGM y auditoría técnica avanzada.
 """)
 
 # --- BARRA LATERAL ---
@@ -93,13 +93,13 @@ if archivo is not None:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
                     y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
                     sm = SMOTE(random_state=42, k_neighbors=min(2, len(X)-1))
-                    X_with_y = X.copy(); X_with_y['__target_t__'] = y
+                    X_with_y = X.copy(); X_with_y['__target_temp__'] = y
                     X_res, _ = sm.fit_resample(X_with_y, y_disc)
-                    y, X = X_res['__target_t__'], X_res.drop(columns=['__target_t__'])
+                    y, X = X_res['__target_temp__'], X_res.drop(columns=['__target_temp__'])
                 progress_bar.progress(60)
 
                 # FASE 4: Entrenamiento
-                status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
+                status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
                     model = xgb.XGBRegressor(n_estimators=500, learning_rate=0.05, max_depth=6, random_state=42)
@@ -124,28 +124,25 @@ if archivo is not None:
 
                 progress_bar.progress(100); time.sleep(0.5); status_text.empty(); progress_bar.empty()
 
-            # Recuperar variables de sesión
+            # Recuperar datos
             model, df_p = st.session_state.model, st.session_state.df_p
             y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
             r2, mae, rmse, mape = st.session_state.metrics
             X_f = st.session_state.X_f
 
             tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "📈 Datos & Clusters", "📊 Multivariante", "🎯 Score de Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
+                "📈 Calidad de Datos", "📊 Análisis Multivariante", "🎯 Score de Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
             ])
 
             with tab1:
                 st.subheader("Caracterización de Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_p.groupby('Dominio_GMD')[features + [target]].mean().style.background_gradient(cmap='viridis'))
                 c1, c2 = st.columns(2)
-                with c1:
-                    vx = st.selectbox("Eje X:", df_p.columns, key="v_x")
-                    vy = st.selectbox("Eje Y:", df_p.columns, index=columnas.index(target), key="v_y")
-                    if st.button("🔄 Actualizar Gráfico"):
-                        if vx == vy: st.session_state.fig_exp = px.histogram(df_p, x=vx, color='Dominio_GMD')
-                        else: st.session_state.fig_exp = px.scatter(df_p, x=vx, y=vy, color='Dominio_GMD', trendline="ols")
-                with c2:
-                    if 'fig_exp' in st.session_state: st.plotly_chart(st.session_state.fig_exp, use_container_width=True)
+                vx = c1.selectbox("Eje X:", df_p.columns, key="v_x")
+                vy = c1.selectbox("Eje Y:", df_p.columns, index=columnas.index(target), key="v_y")
+                if c1.button("🔄 Actualizar Gráfico"):
+                    st.session_state.fig_exp = px.scatter(df_p, x=vx, y=vy, color='Dominio_GMD', trendline="ols") if vx != vy else px.histogram(df_p, x=vx, color='Dominio_GMD')
+                if 'fig_exp' in st.session_state: c2.plotly_chart(st.session_state.fig_exp, use_container_width=True)
 
             with tab2:
                 ch, ci = st.columns(2)
@@ -156,10 +153,11 @@ if archivo is not None:
                 ci.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
 
             with tab3:
-                st.subheader("Fidelidad Predictiva")
+                st.subheader("Fidelidad Predictiva del Gemelo Digital")
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("R²", f"{r2:.3f}"); m2.metric("MAE", f"{mae:.3f}"); m3.metric("RMSE", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
-                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
+                m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("Error (MAE)", f"{mae:.3f}")
+                m3.metric("Riesgo (RMSE)", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
+                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Realidad', 'y': 'Digital Twin'}, trendline="ols"), use_container_width=True)
 
             with tab4:
                 st.subheader("🎛️ Centro de Optimización Prescriptiva")
@@ -181,7 +179,7 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # --- FIX APLICADO AQUÍ: iloc para extraer la mejor configuración ---
+                        # --- FIX DEL ATTRIBUTE ERROR: Selección de la mejor fila ---
                         mejor_cfg = st.session_state.top_5.iloc.to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
@@ -212,13 +210,13 @@ if archivo is not None:
                 ))
 
             with tab6:
-                st.subheader("IA Explicable (XAI)")
+                st.subheader("IA Explicable (Atribución Tecnológica)")
                 X_s = X_f.sample(min(100, len(X_f)))
                 explainer = shap.Explainer(model, X_s)
                 shap_v = explainer(X_s)
                 fig_s, _ = plt.subplots(); shap.summary_plot(shap_v, X_s, show=False)
                 st.pyplot(fig_s)
         else:
-            st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital'.")
+            st.info("💡 Configure parámetros y pulse 'Iniciar Simulación Digital'.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
