@@ -6,6 +6,6 @@ catboost
 shap
 scikit-learn
 imbalanced-learn
-optuna
 plotly
 matplotlib
+openpyxl
