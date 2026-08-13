@@ -65,7 +65,7 @@ if archivo is not None:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # FASE 1: Limpieza
+                # FASE 1: Limpieza por IQR [Fuente 21, 26]
                 status_text.text("Fase 1/5: Refinando datos...")
                 df = df_num.copy()
                 if modo_ruido == "Depuración por IQR":
@@ -74,7 +74,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Automáticos (UGM)
+                # FASE 2: Dominios Automáticos (Clusters) [Fuente 14, 26]
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -87,7 +87,7 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE (Híbrido)
+                # FASE 3: SMOTE (Balanceo) [Fuente 12]
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -99,7 +99,7 @@ if archivo is not None:
                     y, X = X_res['__target_temp__'], X_res.drop(columns=['__target_temp__'])
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento
+                # FASE 4: Entrenamiento IA [Fuente 12, 39]
                 status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
@@ -110,12 +110,11 @@ if archivo is not None:
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
                 progress_bar.progress(80)
 
-                # FASE 5: Validación
+                # FASE 5: Validación [Fuente 17, 39]
                 status_text.text("Fase 5/5: Validando Digital Twin...")
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # Persistencia en Sesión
                 st.session_state.model = model
                 st.session_state.df_p = df
                 st.session_state.y_pred = y_pred_cv
@@ -126,7 +125,7 @@ if archivo is not None:
 
                 progress_bar.progress(100); time.sleep(0.5); status_text.empty(); progress_bar.empty()
 
-            # Recuperar
+            # --- RECUPERAR DATOS DE SESIÓN ---
             model, df_p = st.session_state.model, st.session_state.df_p
             y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
             r2, mae, rmse, mape = st.session_state.metrics
@@ -148,9 +147,9 @@ if archivo is not None:
 
             with tab2:
                 ch, ci = st.columns(2)
-                ch.write("**Mapa de Interdependencia (Heatmap)**")
+                ch.write("**Heatmap de Interdependencia**")
                 ch.plotly_chart(px.imshow(df_p[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
-                ci.write("**Ranking de Importancia**")
+                ci.write("**Ranking de Importancia (IA)**")
                 imp = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.get_feature_importance()
                 ci.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
 
@@ -159,7 +158,7 @@ if archivo is not None:
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("Error (MAE)", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
-                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
+                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Realidad', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
 
             with tab4:
                 st.subheader("🎛️ Centro de Optimización Prescriptiva")
@@ -180,8 +179,8 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # Selección de la mejor fila (índice 0) corregida
-                        mejor_cfg = st.session_state.top_5.iloc.to_dict()
+                        # --- CORRECCIÓN DEL AttributeError ---
+                        mejor_cfg = st.session_state.top_5.iloc.to_dict() # Se añade 
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
                         
@@ -190,7 +189,7 @@ if archivo is not None:
                         mc1.metric("Recuperación Actual", f"{pred_manual:.2f}%")
                         mc2.metric("Máximo Técnico", f"{mejor_val:.2f}%", delta=f"{ganancia:.2f}%")
                         
-                        st.write("### 🥇 Top 5 Escenarios Recomendados")
+                        st.write("### 🥇 Top 5 Escenarios Recomendados [Fuente 11]")
                         st.dataframe(st.session_state.top_5.style.background_gradient(subset=['Recuperación_Estimada'], cmap='Blues'), use_container_width=True)
                         
                         fig_comp = go.Figure()
@@ -211,13 +210,13 @@ if archivo is not None:
                 ))
 
             with tab6:
-                st.subheader("IA Explicable (Atribución Tecnológica)")
+                st.subheader("IA Explicable (Atribución Tecnológica) [Fuente 5]")
                 X_s = X_f.sample(min(100, len(X_f)))
                 explainer = shap.Explainer(model, X_s)
                 shap_v = explainer(X_s)
                 fig_s, _ = plt.subplots(); shap.summary_plot(shap_v, X_s, show=False)
                 st.pyplot(fig_s)
         else:
-            st.info("💡 Configure parámetros y pulse 'Iniciar Simulación Digital'.")
+            st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital'.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
