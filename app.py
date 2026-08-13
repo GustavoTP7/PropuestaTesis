@@ -29,7 +29,7 @@ def cargar_datos(archivo):
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional para Flotación")
 st.markdown("""
 **Digital Twin de Soporte a la Decisión (DSS)**. 
-Versión Completa: **Dominios Automáticos**, **Semáforos de Alerta** y **Análisis Multivariante**.
+Integración de **Clustering Autónomo**, **Caracterización de Dominios** y **IA Explicable**.
 """)
 
 # --- BARRA LATERAL ---
@@ -71,7 +71,7 @@ if archivo is not None:
                 df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
             progress_bar.progress(20)
 
-            # FASE 2: Dominios (Basado en Figura 17, Fuente 14 [4])
+            # FASE 2: Dominios Geometalúrgicos Automáticos [5, 6]
             status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas (UGM)...")
             best_k, best_score = 2, -1
             for k in range(2, 6):
@@ -81,8 +81,12 @@ if archivo is not None:
                     score = silhouette_score(df, labels)
                     if score > best_score:
                         best_score, best_k = score, k
+            
             kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
             df['Dominio_GMD'] = kmeans_final.fit_predict(df)
+            
+            # NUEVO: Generar resumen de los dominios para visualización [3, 4]
+            df_resumen_dominios = df.groupby('Dominio_GMD')[features + [target]].mean()
             progress_bar.progress(40)
 
             # FASE 3: Balanceo
@@ -107,7 +111,7 @@ if archivo is not None:
             progress_bar.progress(80)
 
             # FASE 5: Validación
-            status_text.text("Fase 5/5: Validando Digital Twin...")
+            status_text.text("Fase 5/5: Validando fidelidad predictiva...")
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
             y_pred = cross_val_predict(model, X, y, cv=kf)
             r2, mae, rmse = r2_score(y, y_pred), mean_absolute_error(y, y_pred), np.sqrt(mean_squared_error(y, y_pred))
@@ -122,15 +126,25 @@ if archivo is not None:
             ])
 
             with tab1:
-                st.subheader("Análisis Multivariante de registros")
+                st.subheader("Análisis Multivariante y Caracterización de Dominios")
+                
+                # NUEVO: Tabla de Información de Dominios [4, 7]
+                st.write(f"### 📍 Perfil Técnico de las {best_k} Unidades Geometalúrgicas (UGM)")
+                st.markdown("""
+                Esta tabla muestra los valores promedio por dominio. Úsela para identificar qué grupo 
+                representa mineral complejo (ej. mayor Factor K) o de alta ley [2].
+                """)
+                st.dataframe(df_resumen_dominios.style.background_gradient(cmap='viridis'))
+                
+                st.divider()
                 c1, c2 = st.columns(2)
                 with c1:
-                    # Gráfico adicional: Análisis Bivariante con tendencia (Figura 15, Fuente 14 [5])
                     var_sel = st.selectbox("Analizar tendencia vs " + target, features)
-                    st.plotly_chart(px.scatter(df, x=var_sel, y=target, color='Dominio_GMD', trendline="ols", title=f"Correlación: {var_sel}"), use_container_width=True)
+                    st.plotly_chart(px.scatter(df, x=var_sel, y=target, color='Dominio_GMD', trendline="ols", 
+                                             title=f"Dispersión por Dominios: {var_sel}"), use_container_width=True)
                 with c2:
-                    # Mapa de calor (Figura 3.7, Fuente 17 [6])
-                    st.plotly_chart(px.imshow(df[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r", title="Mapa de Interdependencia"), use_container_width=True)
+                    st.plotly_chart(px.imshow(df[[target] + features].corr(), text_auto=".2f", 
+                                             color_continuous_scale="RdBu_r", title="Mapa de Interdependencia"), use_container_width=True)
 
             with tab2:
                 st.subheader("Evaluación de la Fidelidad Predictiva")
@@ -144,7 +158,6 @@ if archivo is not None:
                 with c_rp:
                     st.plotly_chart(px.scatter(x=y, y=y_pred, labels={'x': 'Realidad', 'y': 'Predicción'}, title="Realidad vs Digital Twin"), use_container_width=True)
                 with c_im:
-                    # Gráfico adicional: Ranking de Relevancia (Impacto Tecnológico [7])
                     importances = model.feature_importances_ if tipo_modelo == "XGBoost" else model.get_feature_importance()
                     df_imp = pd.DataFrame({'Variable': features, 'Importancia': importances}).sort_values('Importancia', ascending=True)
                     st.plotly_chart(px.bar(df_imp, x='Importancia', y='Variable', orientation='h', title="Atribución de Relevancia"), use_container_width=True)
@@ -163,13 +176,12 @@ if archivo is not None:
                         p_rand = model.predict(pd.DataFrame([rand_cfg]))
                         val_p = p_rand.item() if hasattr(p_rand, "item") else p_rand
                         if val_p > best_v: best_v, best_cfg = val_p, rand_cfg
-                    st.success(f"Máximo Potencial: {best_v:.2f}%")
+                    st.success(f"Máximo Potencial Identificado: {best_v:.2f}%")
                     st.json(best_cfg)
                 st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
 
             with tab4:
                 st.subheader("Detección e Isolation de Fallas (FDI)")
-                # Retorno de los SEMÁFOROS (Basado en Alertas, Fuente 31 [1])
                 df_audit = df.copy()
                 df_audit['Error'] = np.abs(df[target] - y_pred[:len(df)])
                 def semaforo(e):
@@ -180,7 +192,7 @@ if archivo is not None:
                 st.plotly_chart(px.scatter(df_audit, x=df_audit.index, y='Error', color='Estado', 
                                          color_discrete_map={"🟢 Normal": "green", "🟡 Advertencia": "orange", "🔴 Anomalía": "red"},
                                          title="Protocolo de Auditoría de Turnos (FDI)"), use_container_width=True)
-                st.write("**Resumen de Alertas Operativas:**")
+                st.write("**Resumen de Alertas Operativas por Turno:**")
                 st.dataframe(df_audit['Estado'].value_counts())
 
             with tab5:
@@ -192,6 +204,6 @@ if archivo is not None:
                 shap.summary_plot(shap_v, X_shap, show=False)
                 st.pyplot(fig_s)
         else:
-            st.info("💡 Configure los parámetros y presione el botón para ver los análisis y semáforos.")
+            st.info("💡 Configure los parámetros y presione el botón para ver la caracterización de dominios y semáforos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
