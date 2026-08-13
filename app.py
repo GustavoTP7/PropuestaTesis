@@ -40,7 +40,7 @@ with st.sidebar:
     modo_ruido = st.radio("Filtro de Outliers [IQR]:", ["Data Original", "Depuración por IQR"])
     
     st.header("🤖 2. Motor de IA Autónomo")
-    tipo_modelo = st.selectbox("Algoritmo:", ["XGBoost", "CatBoost"])
+    tipo_modelo = st.selectbox("Seleccionar Algoritmo:", ["XGBoost", "CatBoost"])
     balancear = st.checkbox("Balanceo SMOTE (Casos Críticos)")
 
     st.divider()
@@ -73,7 +73,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Automáticos
+                # FASE 2: Dominios Automáticos (UGM)
                 status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas (UGM)...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -97,7 +97,7 @@ if archivo is not None:
                     y = df.loc[X.index, target]
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento IA (Early Stopping)
+                # FASE 4: Entrenamiento con Early Stopping
                 status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
@@ -127,7 +127,7 @@ if archivo is not None:
                 status_text.empty()
                 progress_bar.empty()
 
-            # Recuperar datos
+            # Recuperar datos de sesión
             model, df = st.session_state.model, st.session_state.df
             y_pred, y_final = st.session_state.y_pred, st.session_state.y_final
             r2, mae, rmse, mape = st.session_state.metrics
@@ -144,7 +144,9 @@ if archivo is not None:
                 st.dataframe(df_resumen.style.background_gradient(cmap='viridis'))
                 
                 st.divider()
-                c1, c2 = st.columns()
+                st.write("### 🔍 Explorador de Dispersión")
+                # CORRECCIÓN ERROR TYPEERROR: Se agregó el argumento (2) a st.columns
+                c1, c2 = st.columns(2) 
                 with c1:
                     var_x = st.selectbox("Variable Eje X:", columnas, index=0, key="sel_x")
                     var_y = st.selectbox("Variable Eje Y:", columnas, index=columnas.index(target), key="sel_y")
@@ -177,7 +179,6 @@ if archivo is not None:
                 m2.metric("Error (MAE)", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}")
                 m4.metric("Error Relativo", f"{mape:.2f}%")
-                # GRÁFICO REAL VS DIGITAL
                 st.plotly_chart(px.scatter(x=y_final, y=y_pred, labels={'x': 'Realidad Operativa', 'y': 'Digital Twin'}, 
                                          trendline="ols", title="Fidelidad Real vs Digital (Ajuste Unitario)"), use_container_width=True)
 
@@ -186,6 +187,7 @@ if archivo is not None:
                 inputs_sim = {col: st.slider(f"{col}:", float(df[col].min()), float(df[col].max()), float(df[col].mean()), key=f"sim_{col}") for col in features}
                 df_sim_input = pd.DataFrame([inputs_sim])
                 pred_raw = model.predict(df_sim_input)
+                # Extracción escalar definitiva con .item()
                 pred_sim = pred_raw.item() if hasattr(pred_raw, "item") else pred_raw
                 st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
 
@@ -204,7 +206,7 @@ if archivo is not None:
                 df_audit['Alerta FDI'] = df_audit['Error'].apply(logic_semaforo)
                 
                 st.write("**Tabla de registros históricos vs Digital Twin (Monitor FDI):**")
-                # CORRECCIÓN ATRIBUTE ERROR: Se cambió .applymap por .map para Stylers de Pandas 2.1+
+                # CORRECCIÓN PANDAS 2.1: Se usa .map() en lugar de .applymap()
                 st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Alerta FDI', 'Dominio_GMD'] + features].style.map(
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
                     subset=['Alerta FDI']
