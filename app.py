@@ -28,9 +28,9 @@ def cargar_datos(archivo):
         return None
 
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional")
-st.markdown("**Digital Twin de Soporte a la Decisión (DSS)** para optimización de recuperación.")
+st.markdown("**Digital Twin de Soporte a la Decisión (DSS)** para optimización de procesos mineros.")
 
-# --- BARRA LATERAL (ENTRENAMIENTO) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ 1. Arquitectura de Datos")
     archivo = st.file_uploader("Subir registros históricos", type=["csv", "xlsx"])
@@ -56,7 +56,6 @@ if archivo is not None:
             features = st.multiselect("Predictores (X):", [c for c in columnas if c != target], 
                                      default=[c for c in columnas if c != target])
 
-        # --- PROCESAMIENTO PERSISTENTE ---
         if ejecutar or 'model' in st.session_state:
             if ejecutar:
                 progress_bar = st.progress(0)
@@ -66,7 +65,7 @@ if archivo is not None:
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
                     IQR = Q3 - Q1
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
-                progress_bar.progress(20)
+                progress_bar.progress(25)
 
                 # FASE 2: Dominios (UGM)
                 best_k, best_score = 2, -1
@@ -78,9 +77,9 @@ if archivo is not None:
                         if score > best_score: best_score, best_k = score, k
                 kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
-                progress_bar.progress(40)
+                progress_bar.progress(50)
 
-                # FASE 3: SMOTE (Híbrido X e Y para evitar KeyError)
+                # FASE 3: SMOTE (Híbrido)
                 X, y = df[features], df[target]
                 if balancear:
                     y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
@@ -88,7 +87,7 @@ if archivo is not None:
                     X_with_y = X.copy(); X_with_y['__target__'] = y
                     X_res, _ = sm.fit_resample(X_with_y, y_disc)
                     y, X = X_res['__target__'], X_res.drop(columns=['__target__'])
-                progress_bar.progress(60)
+                progress_bar.progress(75)
 
                 # FASE 4: Entrenamiento
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -98,9 +97,8 @@ if archivo is not None:
                 else:
                     model = CatBoostRegressor(iterations=500, learning_rate=0.05, depth=6, random_state=42, verbose=0)
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
-                progress_bar.progress(80)
 
-                # FASE 5: Validación Cruzada
+                # FASE 5: Validación
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
@@ -109,9 +107,9 @@ if archivo is not None:
                 st.session_state.y_pred = y_pred_cv
                 st.session_state.metrics = (r2_score(y, y_pred_cv), mean_absolute_error(y, y_pred_cv), np.sqrt(mean_squared_error(y, y_pred_cv)), mean_absolute_percentage_error(y, y_pred_cv) * 100)
                 st.session_state.X_f, st.session_state.y_f = X, y
-                progress_bar.progress(100)
-                time.sleep(0.5); progress_bar.empty()
+                progress_bar.progress(100); time.sleep(0.5); progress_bar.empty()
 
+            # Recuperación de datos
             model, df_p = st.session_state.model, st.session_state.df_p
             y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
             r2, mae, rmse, mape = st.session_state.metrics
@@ -133,22 +131,24 @@ if archivo is not None:
                 ch, ci = st.columns(2)
                 ch.write("**Heatmap de Correlación**")
                 ch.plotly_chart(px.imshow(df_p[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
-                ci.write("**Importancia de Atributos (IA)**")
+                ci.write("**Importancia de Variables (IA)**")
                 imp = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.get_feature_importance()
                 ci.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
 
             with tab3:
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("Error (MAE)", f"{mae:.3f}")
+                m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("MAE", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
-                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, trendline="ols", title="Fidelidad Real vs Digital"), use_container_width=True)
+                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
 
             with tab4:
                 st.subheader("🎛️ Centro de Optimización Prescriptiva")
-                col_ctrl, col_res = st.columns()
+                # CORRECCIÓN DEL TypeError: Se añade el argumento '2'
+                col_ctrl, col_res = st.columns(2)
                 with col_ctrl:
-                    st.info("🎮 **Ajuste Manual**")
+                    st.info("🎮 **Ajuste Manual de Set-Points**")
                     inputs_sim = {col: st.slider(f"{col}", float(df_p[col].min()), float(df_p[col].max()), float(df_p[col].mean()), key=f"s_{col}") for col in features}
+                    st.divider()
                     btn_opt = st.button("🚀 ENCONTRAR OPERACIÓN ÓPTIMA", use_container_width=True, type="primary")
 
                 with col_res:
@@ -161,7 +161,7 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # CORRECCIÓN AQUÍ: Se usa  para extraer la mejor fila
+                        # Selección de la mejor fila para el gráfico comparativo
                         mejor_cfg = st.session_state.top_5.iloc.to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
