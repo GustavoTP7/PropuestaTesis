@@ -9,3 +9,4 @@ imbalanced-learn
 plotly
 matplotlib
 openpyxl
+statsmodels
