@@ -30,7 +30,7 @@ def cargar_datos(archivo):
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional para Flotación")
 st.markdown("""
 **Digital Twin de Soporte a la Decisión (DSS)**. 
-Optimizado con **Análisis Multivariante**, **Semáforos de Alerta** y **Fidelidad Predictiva**.
+Exploración de datos robusta, caracterización de dominios y auditoría técnica avanzada.
 """)
 
 # --- BARRA LATERAL ---
@@ -87,7 +87,7 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: Balanceo
+                # FASE 3: SMOTE
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -97,8 +97,8 @@ if archivo is not None:
                     y = df.loc[X.index, target]
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento IA
-                status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
+                # FASE 4: Entrenamiento IA (Early Stopping)
+                status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
                     model = xgb.XGBRegressor(n_estimators=1000, learning_rate=0.05, max_depth=6, random_state=42)
@@ -108,12 +108,12 @@ if archivo is not None:
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
                 progress_bar.progress(80)
 
-                # FASE 5: Validación
+                # FASE 5: Validación Cruzada
                 status_text.text("Fase 5/5: Validando Digital Twin...")
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # Almacenamiento en Sesión
+                # PERSISTENCIA EN SESIÓN
                 st.session_state.model = model
                 st.session_state.df = df
                 st.session_state.y_pred = y_pred_cv
@@ -127,30 +127,27 @@ if archivo is not None:
                 status_text.empty()
                 progress_bar.empty()
 
-            # Recuperación de datos
-            model = st.session_state.model
-            df = st.session_state.df
-            y_pred = st.session_state.y_pred
+            # Recuperar datos
+            model, df = st.session_state.model, st.session_state.df
+            y_pred, y_final = st.session_state.y_pred, st.session_state.y_final
             r2, mae, rmse, mape = st.session_state.metrics
-            best_k = st.session_state.best_k
-            X_final, y_final = st.session_state.X_final, st.session_state.y_final
+            best_k, X_final = st.session_state.best_k, st.session_state.X_final
 
             tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
                 "📈 Calidad de Datos", "📊 Análisis Multivariante", "🎯 Score de Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
             ])
 
             with tab1:
-                st.subheader("Análisis Exploratorio y Perfil de Dominios")
-                st.write(f"### 📍 Caracterización de las {best_k} Unidades Geometalúrgicas (UGM)")
+                st.subheader("Análisis Exploratorio y Caracterización de Dominios")
                 df_resumen = df.groupby('Dominio_GMD')[features + [target]].mean()
+                st.write(f"### 📍 Perfil Técnico de las {best_k} Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_resumen.style.background_gradient(cmap='viridis'))
                 
                 st.divider()
-                st.write("### 🔍 Explorador de Dispersión")
-                c1, c2 = st.columns([9, 13])
+                c1, c2 = st.columns()
                 with c1:
-                    var_x = st.selectbox("Eje X:", columnas, index=0, key="sel_x")
-                    var_y = st.selectbox("Eje Y:", columnas, index=columnas.index(target), key="sel_y")
+                    var_x = st.selectbox("Variable Eje X:", columnas, index=0, key="sel_x")
+                    var_y = st.selectbox("Variable Eje Y:", columnas, index=columnas.index(target), key="sel_y")
                     actualizar_grafico = st.button("🔄 Actualizar Visualización")
                 with c2:
                     if 'fig_explorador' not in st.session_state or actualizar_grafico:
@@ -161,28 +158,26 @@ if archivo is not None:
                     st.plotly_chart(st.session_state.fig_explorador, use_container_width=True)
 
             with tab2:
-                st.subheader("Relaciones Multivariantes e Impacto Tecnológico")
+                st.subheader("Interdependencia y Atribución Tecnológica")
                 c_heat, c_imp = st.columns(2)
                 with c_heat:
-                    # HEATMAP: Matriz de correlación [1, 2]
                     st.write("**Mapa de Interdependencia (Heatmap)**")
                     corr_matrix = df[[target] + features].corr()
                     st.plotly_chart(px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
                 with c_imp:
-                    # IMPORTANCIA RELATIVA: [4, 5]
                     st.write("**Ranking de Importancia de Variables**")
                     importances = model.feature_importances_ if tipo_modelo == "XGBoost" else model.get_feature_importance()
                     df_imp = pd.DataFrame({'Variable': features, 'Impacto': importances}).sort_values('Impacto', ascending=True)
-                    st.plotly_chart(px.bar(df_imp, x='Impacto', y='Variable', orientation='h', title="Atribución de Pesos en el Modelo"), use_container_width=True)
+                    st.plotly_chart(px.bar(df_imp, x='Impacto', y='Variable', orientation='h', title="Peso de Atributos"), use_container_width=True)
 
             with tab3:
                 st.subheader("Evaluación de la Fidelidad Predictiva")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Fidelidad (R²)", f"{r2:.3f}")
-                m2.metric("MAE", f"{mae:.3f}")
+                m2.metric("Error (MAE)", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}")
                 m4.metric("Error Relativo", f"{mape:.2f}%")
-                # GRÁFICO REAL VS PREDICHO [9, 10, 12]
+                # GRÁFICO REAL VS DIGITAL
                 st.plotly_chart(px.scatter(x=y_final, y=y_pred, labels={'x': 'Realidad Operativa', 'y': 'Digital Twin'}, 
                                          trendline="ols", title="Fidelidad Real vs Digital (Ajuste Unitario)"), use_container_width=True)
 
@@ -195,10 +190,8 @@ if archivo is not None:
                 st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
 
             with tab5:
-                st.subheader("Protocolo FDI y Auditoría de Datos")
-                # TABLA CON SEMÁFOROS [7, 8]
-                df_audit = df.copy().head(500) # Mostramos una muestra para velocidad
-                # Ajustamos y_pred para el tamaño de df_audit si es necesario
+                st.subheader("Protocolo FDI: Auditoría de Registros")
+                df_audit = df.copy().head(500)
                 y_pred_audit = y_pred[:len(df_audit)]
                 df_audit['Predicción'] = y_pred_audit
                 df_audit['Error'] = np.abs(df_audit[target] - df_audit['Predicción'])
@@ -210,8 +203,9 @@ if archivo is not None:
                 
                 df_audit['Alerta FDI'] = df_audit['Error'].apply(logic_semaforo)
                 
-                st.write("**Tabla de registros históricos vs Predicciones (Protocolo FDI):**")
-                st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Alerta FDI', 'Dominio_GMD'] + features].style.applymap(
+                st.write("**Tabla de registros históricos vs Digital Twin (Monitor FDI):**")
+                # CORRECCIÓN ATRIBUTE ERROR: Se cambió .applymap por .map para Stylers de Pandas 2.1+
+                st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Alerta FDI', 'Dominio_GMD'] + features].style.map(
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
                     subset=['Alerta FDI']
                 ))
@@ -225,6 +219,6 @@ if archivo is not None:
                 shap.summary_plot(shap_v, X_shap, show=False)
                 st.pyplot(fig_s)
         else:
-            st.info("💡 Configure parámetros y pulse 'Iniciar Simulación Digital' para procesar los datos y ver los semáforos.")
+            st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar datos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
