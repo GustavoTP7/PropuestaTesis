@@ -29,14 +29,14 @@ def cargar_datos(archivo):
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional para Flotación")
 st.markdown("""
 **Digital Twin de Soporte a la Decisión (DSS)**. 
-Integración de **Clustering Autónomo**, **Caracterización de Dominios** y **IA Explicable**.
+Exploración de datos flexible, caracterización de dominios y supervisión técnica avanzada.
 """)
 
 # --- BARRA LATERAL ---
 with st.sidebar:
     st.header("⚙️ 1. Arquitectura de Datos")
     archivo = st.file_uploader("Subir registros históricos", type=["csv", "xlsx"])
-    modo_ruido = st.radio("Mitigación de Outliers [IQR]:", ["Data Original", "Depuración por IQR"])
+    modo_ruido = st.radio("Filtro de Outliers [IQR]:", ["Data Original", "Depuración por IQR"])
     
     st.header("🤖 2. Motor de IA Autónomo")
     tipo_modelo = st.selectbox("Algoritmo:", ["XGBoost", "CatBoost"])
@@ -54,8 +54,8 @@ if archivo is not None:
         
         with st.sidebar:
             st.header("🎯 3. Configuración de Variables")
-            target = st.selectbox("Variable Respuesta (Y):", columnas, index=len(columnas)-1)
-            features = st.multiselect("Variables Predictoras (X):", [c for c in columnas if c != target], 
+            target = st.selectbox("Variable Objetivo (Respuesta):", columnas, index=len(columnas)-1)
+            features = st.multiselect("Predictores (X):", [c for c in columnas if c != target], 
                                      default=[c for c in columnas if c != target])
 
         if ejecutar:
@@ -71,7 +71,7 @@ if archivo is not None:
                 df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
             progress_bar.progress(20)
 
-            # FASE 2: Dominios Geometalúrgicos Automáticos [5, 6]
+            # FASE 2: Dominios Automáticos
             status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas (UGM)...")
             best_k, best_score = 2, -1
             for k in range(2, 6):
@@ -81,15 +81,12 @@ if archivo is not None:
                     score = silhouette_score(df, labels)
                     if score > best_score:
                         best_score, best_k = score, k
-            
             kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
             df['Dominio_GMD'] = kmeans_final.fit_predict(df)
-            
-            # NUEVO: Generar resumen de los dominios para visualización [3, 4]
             df_resumen_dominios = df.groupby('Dominio_GMD')[features + [target]].mean()
             progress_bar.progress(40)
 
-            # FASE 3: Balanceo
+            # FASE 3: SMOTE
             X, y = df[features], df[target]
             if balancear:
                 status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -99,8 +96,8 @@ if archivo is not None:
                 y = df.loc[X.index, target]
             progress_bar.progress(60)
 
-            # FASE 4: Entrenamiento
-            status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
+            # FASE 4: Entrenamiento IA (Early Stopping)
+            status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
             X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
             if tipo_modelo == "XGBoost":
                 model = xgb.XGBRegressor(n_estimators=1000, learning_rate=0.05, max_depth=6, random_state=42)
@@ -111,7 +108,7 @@ if archivo is not None:
             progress_bar.progress(80)
 
             # FASE 5: Validación
-            status_text.text("Fase 5/5: Validando fidelidad predictiva...")
+            status_text.text("Fase 5/5: Validando Digital Twin...")
             kf = KFold(n_splits=5, shuffle=True, random_state=42)
             y_pred = cross_val_predict(model, X, y, cv=kf)
             r2, mae, rmse = r2_score(y, y_pred), mean_absolute_error(y, y_pred), np.sqrt(mean_squared_error(y, y_pred))
@@ -126,41 +123,37 @@ if archivo is not None:
             ])
 
             with tab1:
-                st.subheader("Análisis Multivariante y Caracterización de Dominios")
-                
-                # NUEVO: Tabla de Información de Dominios [4, 7]
-                st.write(f"### 📍 Perfil Técnico de las {best_k} Unidades Geometalúrgicas (UGM)")
-                st.markdown("""
-                Esta tabla muestra los valores promedio por dominio. Úsela para identificar qué grupo 
-                representa mineral complejo (ej. mayor Factor K) o de alta ley [2].
-                """)
+                st.subheader("Análisis Exploratorio y Caracterización de Dominios")
+                st.write(f"### 📍 Perfil de las {best_k} Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_resumen_dominios.style.background_gradient(cmap='viridis'))
                 
                 st.divider()
-                c1, c2 = st.columns(2)
+                st.write("### 🔍 Explorador de Dispersión Multivariante")
+                c1, c2 = st.columns([8, 9])
                 with c1:
-                    var_sel = st.selectbox("Analizar tendencia vs " + target, features)
-                    st.plotly_chart(px.scatter(df, x=var_sel, y=target, color='Dominio_GMD', trendline="ols", 
-                                             title=f"Dispersión por Dominios: {var_sel}"), use_container_width=True)
+                    # MEJORA: Libertad total para elegir variables X y Y
+                    var_x = st.selectbox("Variable eje X:", columnas, index=0)
+                    var_y = st.selectbox("Variable eje Y:", columnas, index=columnas.index(target))
+                    st.info("💡 Use este gráfico para identificar tendencias entre cualquier par de variables operativas.")
                 with c2:
-                    st.plotly_chart(px.imshow(df[[target] + features].corr(), text_auto=".2f", 
-                                             color_continuous_scale="RdBu_r", title="Mapa de Interdependencia"), use_container_width=True)
+                    st.plotly_chart(px.scatter(df, x=var_x, y=var_y, color='Dominio_GMD', trendline="ols", 
+                                             title=f"Relación: {var_x} vs {var_y}"), use_container_width=True)
 
             with tab2:
                 st.subheader("Evaluación de la Fidelidad Predictiva")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Fidelidad (R²)", f"{r2:.3f}")
-                m2.metric("Error (MAE)", f"{mae:.3f}")
+                m2.metric("MAE", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}")
-                m4.metric("MAPE", f"{mape:.2f}%")
+                m4.metric("Error Relativo", f"{mape:.2f}%")
                 
                 c_rp, c_im = st.columns(2)
                 with c_rp:
-                    st.plotly_chart(px.scatter(x=y, y=y_pred, labels={'x': 'Realidad', 'y': 'Predicción'}, title="Realidad vs Digital Twin"), use_container_width=True)
+                    st.plotly_chart(px.scatter(x=y, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, title="Realidad vs Digital Twin"), use_container_width=True)
                 with c_im:
                     importances = model.feature_importances_ if tipo_modelo == "XGBoost" else model.get_feature_importance()
                     df_imp = pd.DataFrame({'Variable': features, 'Importancia': importances}).sort_values('Importancia', ascending=True)
-                    st.plotly_chart(px.bar(df_imp, x='Importancia', y='Variable', orientation='h', title="Atribución de Relevancia"), use_container_width=True)
+                    st.plotly_chart(px.bar(df_imp, x='Importancia', y='Variable', orientation='h', title="Ranking de Relevancia"), use_container_width=True)
 
             with tab3:
                 st.subheader("Simulación Prescriptiva: Análisis 'What-If'")
@@ -176,7 +169,7 @@ if archivo is not None:
                         p_rand = model.predict(pd.DataFrame([rand_cfg]))
                         val_p = p_rand.item() if hasattr(p_rand, "item") else p_rand
                         if val_p > best_v: best_v, best_cfg = val_p, rand_cfg
-                    st.success(f"Máximo Potencial Identificado: {best_v:.2f}%")
+                    st.success(f"Máximo Potencial: {best_v:.2f}%")
                     st.json(best_cfg)
                 st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
 
@@ -190,9 +183,8 @@ if archivo is not None:
                     else: return "🔴 Anomalía"
                 df_audit['Estado'] = df_audit['Error'].apply(semaforo)
                 st.plotly_chart(px.scatter(df_audit, x=df_audit.index, y='Error', color='Estado', 
-                                         color_discrete_map={"🟢 Normal": "green", "🟡 Advertencia": "orange", "🔴 Anomalía": "red"},
-                                         title="Protocolo de Auditoría de Turnos (FDI)"), use_container_width=True)
-                st.write("**Resumen de Alertas Operativas por Turno:**")
+                                         color_discrete_map={"🟢 Normal": "green", "🟡 Advertencia": "orange", "🔴 Anomalía": "red"}), use_container_width=True)
+                st.write("**Resumen de Alertas por Turno:**")
                 st.dataframe(df_audit['Estado'].value_counts())
 
             with tab5:
@@ -204,6 +196,6 @@ if archivo is not None:
                 shap.summary_plot(shap_v, X_shap, show=False)
                 st.pyplot(fig_s)
         else:
-            st.info("💡 Configure los parámetros y presione el botón para ver la caracterización de dominios y semáforos.")
+            st.info("💡 Configure los parámetros y presione el botón para iniciar el análisis exploratorio y la IA.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
