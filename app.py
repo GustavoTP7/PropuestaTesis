@@ -19,10 +19,10 @@ st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
 @st.cache_data
 def cargar_datos(archivo):
     try:
-        # Carga dinámica compatible con Excel y CSV [2]
+        # Carga dinámica compatible con Excel y CSV
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
-        df = df.loc[:, ~df.columns.duplicated()] 
+        df = df.loc[:, ~df.columns.duplicated()] # Evita duplicados de nombres de columnas
         return df
     except Exception as e:
         st.error(f"Error en la ingesta de datos: {e}")
@@ -52,7 +52,7 @@ if archivo is not None:
     df_raw = cargar_datos(archivo)
     
     if df_raw is not None:
-        # Procesamiento estadístico inicial [3, 4]
+        # Procesamiento estadístico inicial
         df_num = df_raw.select_dtypes(include=[np.number]).dropna()
         columnas = df_num.columns.tolist()
         
@@ -68,7 +68,7 @@ if archivo is not None:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # FASE 1: Depuración IQR [4]
+                # FASE 1: Depuración IQR [Fuente 21, 26]
                 status_text.text("Fase 1/5: Refinando datos...")
                 df = df_num.copy()
                 if modo_ruido == "Depuración por IQR":
@@ -77,7 +77,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Geometalúrgicos (UGM) [5]
+                # FASE 2: Dominios Geometalúrgicos (UGM) [Fuente 14, 26]
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -90,7 +90,7 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE para casos críticos [6]
+                # FASE 3: SMOTE para casos críticos [Fuente 5, 12]
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -101,7 +101,7 @@ if archivo is not None:
                     y, X = X_res['__t__'], X_res.drop(columns=['__t__'])
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento de IA [3]
+                # FASE 4: Entrenamiento de IA [Fuente 12, 17]
                 status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
@@ -112,7 +112,7 @@ if archivo is not None:
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
                 progress_bar.progress(80)
 
-                # FASE 5: Validación Cruzada [3, 7]
+                # FASE 5: Validación Cruzada [Fuente 17, 32]
                 status_text.text("Fase 5/5: Validando Digital Twin...")
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
@@ -135,11 +135,11 @@ if archivo is not None:
             X_f = st.session_state.X_f
 
             tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "📈 Datos & Clusters", "📊 Multivariante", "🎯 Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
+                "📈 Datos & Clusters", "📊 Multivariante", "🎯 Score de Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
             ])
 
             with tab1:
-                st.subheader("Caracterización de Unidades Geometalúrgicas (UGM) [5]")
+                st.subheader("Caracterización de Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_p.groupby('Dominio_GMD')[features + [target]].mean().style.background_gradient(cmap='viridis'))
                 c1, c2 = st.columns(2)
                 vx = c1.selectbox("Eje X:", df_p.columns, key="v_x")
@@ -164,7 +164,7 @@ if archivo is not None:
                 st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Realidad', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
 
             with tab4:
-                st.subheader("🎛️ Centro de Optimización Prescriptiva [1]")
+                st.subheader("🎛️ Centro de Optimización Prescriptiva")
                 col_ctrl, col_res = st.columns(2)
                 with col_ctrl:
                     st.info("🎮 **Ajuste Manual de Set-Points**")
@@ -175,7 +175,7 @@ if archivo is not None:
                 with col_res:
                     pred_manual = model.predict(pd.DataFrame([inputs_sim])).item()
                     if btn_opt:
-                        # Búsqueda Monte Carlo para encontrar máximos técnicos
+                        # Búsqueda Monte Carlo para encontrar máximos técnicos [Fuente 11]
                         rand_data = pd.DataFrame({c: np.random.uniform(df_p[c].min(), df_p[c].max(), 1000) for c in features})
                         preds_opt = model.predict(rand_data)
                         top_idx = np.argsort(preds_opt)[-5:][::-1]
@@ -183,7 +183,7 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # --- FIX DEL ERROR ILOC: Se añade  para extraer la mejor fila ---
+                        # --- FIX DEFINITIVO DEL ERROR ILOC: Se añade  para seleccionar la mejor fila ---
                         mejor_cfg = st.session_state.top_5.iloc.to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
@@ -196,10 +196,10 @@ if archivo is not None:
                         st.write("### 🥇 Top 5 Escenarios Recomendados")
                         st.dataframe(st.session_state.top_5.style.background_gradient(subset=['Recuperación_Estimada'], cmap='Blues'), use_container_width=True)
                         
-                        # Comparativa visual de palancas de control
+                        # Comparativa visual entre manual y el mejor del Top 5
                         fig_comp = go.Figure()
-                        fig_comp.add_trace(go.Bar(name='Manual', x=features, y=[inputs_sim[f] for f in features]))
-                        fig_comp.add_trace(go.Bar(name='Óptimo', x=features, y=[mejor_cfg[f] for f in features]))
+                        fig_comp.add_trace(go.Bar(name='Operación Actual', x=features, y=[inputs_sim[f] for f in features]))
+                        fig_comp.add_trace(go.Bar(name='Operación Óptima', x=features, y=[mejor_cfg[f] for f in features]))
                         fig_comp.update_layout(title="Comparativa: Manual vs Óptimo", barmode='group', height=350)
                         st.plotly_chart(fig_comp, use_container_width=True)
 
