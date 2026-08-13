@@ -55,7 +55,7 @@ if archivo is not None:
         
         with st.sidebar:
             st.header("🎯 3. Configuración de Variables")
-            target = st.selectbox("Variable Objetivo (Y):", columnas, index=len(columnas)-1)
+            target = st.selectbox("Variable Objetivo (Respuesta):", columnas, index=len(columnas)-1)
             features = st.multiselect("Predictores (X):", [c for c in columnas if c != target], 
                                      default=[c for c in columnas if c != target])
 
@@ -73,7 +73,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Automáticos (UGM)
+                # FASE 2: Dominios Automáticos
                 status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas (UGM)...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -87,17 +87,24 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE
+                # FASE 3: SMOTE (CORREGIDO PARA EVITAR KEYERROR)
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
+                    # Discretización para definir categorías a balancear [7]
                     y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
                     sm = SMOTE(random_state=42, k_neighbors=min(2, len(X)-1))
-                    X, _ = sm.fit_resample(X, y_disc)
-                    y = df.loc[X.index, target]
+                    
+                    # Técnica para balancear X e Y (continuo) al mismo tiempo
+                    X_with_y = X.copy()
+                    X_with_y['__target_temp__'] = y
+                    X_resampled, _ = sm.fit_resample(X_with_y, y_disc)
+                    
+                    y = X_resampled['__target_temp__']
+                    X = X_resampled.drop(columns=['__target_temp__'])
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento con Early Stopping
+                # FASE 4: Entrenamiento IA
                 status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
@@ -113,9 +120,9 @@ if archivo is not None:
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # PERSISTENCIA EN SESIÓN
+                # PERSISTENCIA
                 st.session_state.model = model
-                st.session_state.df = df
+                st.session_state.df_proc = df # DataFrame con Dominios
                 st.session_state.y_pred = y_pred_cv
                 st.session_state.metrics = (r2_score(y, y_pred_cv), mean_absolute_error(y, y_pred_cv), np.sqrt(mean_squared_error(y, y_pred_cv)), mean_absolute_percentage_error(y, y_pred_cv) * 100)
                 st.session_state.best_k = best_k
@@ -127,8 +134,8 @@ if archivo is not None:
                 status_text.empty()
                 progress_bar.empty()
 
-            # Recuperar datos de sesión
-            model, df = st.session_state.model, st.session_state.df
+            # Recuperar datos
+            model, df_p = st.session_state.model, st.session_state.df_proc
             y_pred, y_final = st.session_state.y_pred, st.session_state.y_final
             r2, mae, rmse, mape = st.session_state.metrics
             best_k, X_final = st.session_state.best_k, st.session_state.X_final
@@ -139,24 +146,22 @@ if archivo is not None:
 
             with tab1:
                 st.subheader("Análisis Exploratorio y Caracterización de Dominios")
-                df_resumen = df.groupby('Dominio_GMD')[features + [target]].mean()
+                df_resumen = df_p.groupby('Dominio_GMD')[features + [target]].mean()
                 st.write(f"### 📍 Perfil Técnico de las {best_k} Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_resumen.style.background_gradient(cmap='viridis'))
                 
                 st.divider()
-                st.write("### 🔍 Explorador de Dispersión")
-                # CORRECCIÓN ERROR TYPEERROR: Se agregó el argumento (2) a st.columns
-                c1, c2 = st.columns(2) 
+                c1, c2 = st.columns(2)
                 with c1:
-                    var_x = st.selectbox("Variable Eje X:", columnas, index=0, key="sel_x")
-                    var_y = st.selectbox("Variable Eje Y:", columnas, index=columnas.index(target), key="sel_y")
+                    var_x = st.selectbox("Variable Eje X:", df_p.columns, index=0, key="sel_x")
+                    var_y = st.selectbox("Variable Eje Y:", df_p.columns, index=df_p.columns.tolist().index(target), key="sel_y")
                     actualizar_grafico = st.button("🔄 Actualizar Visualización")
                 with c2:
                     if 'fig_explorador' not in st.session_state or actualizar_grafico:
                         if var_x == var_y:
-                            st.session_state.fig_explorador = px.histogram(df, x=var_x, color='Dominio_GMD', title=f"Distribución de {var_x}")
+                            st.session_state.fig_explorador = px.histogram(df_p, x=var_x, color='Dominio_GMD', title=f"Distribución de {var_x}")
                         else:
-                            st.session_state.fig_explorador = px.scatter(df, x=var_x, y=var_y, color='Dominio_GMD', trendline="ols", title=f"Relación: {var_x} vs {var_y}")
+                            st.session_state.fig_explorador = px.scatter(df_p, x=var_x, y=var_y, color='Dominio_GMD', trendline="ols", title=f"Relación: {var_x} vs {var_y}")
                     st.plotly_chart(st.session_state.fig_explorador, use_container_width=True)
 
             with tab2:
@@ -164,11 +169,11 @@ if archivo is not None:
                 c_heat, c_imp = st.columns(2)
                 with c_heat:
                     st.write("**Mapa de Interdependencia (Heatmap)**")
-                    corr_matrix = df[[target] + features].corr()
+                    corr_matrix = df_p[[target] + features].corr()
                     st.plotly_chart(px.imshow(corr_matrix, text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
                 with c_imp:
                     st.write("**Ranking de Importancia de Variables**")
-                    importances = model.feature_importances_ if tipo_modelo == "XGBoost" else model.get_feature_importance()
+                    importances = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.get_feature_importance()
                     df_imp = pd.DataFrame({'Variable': features, 'Impacto': importances}).sort_values('Impacto', ascending=True)
                     st.plotly_chart(px.bar(df_imp, x='Impacto', y='Variable', orientation='h', title="Peso de Atributos"), use_container_width=True)
 
@@ -180,22 +185,22 @@ if archivo is not None:
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}")
                 m4.metric("Error Relativo", f"{mape:.2f}%")
                 st.plotly_chart(px.scatter(x=y_final, y=y_pred, labels={'x': 'Realidad Operativa', 'y': 'Digital Twin'}, 
-                                         trendline="ols", title="Fidelidad Real vs Digital (Ajuste Unitario)"), use_container_width=True)
+                                         trendline="ols", title="Fidelidad Real vs Digital"), use_container_width=True)
 
             with tab4:
                 st.subheader("Simulación Prescriptiva: Análisis 'What-If'")
-                inputs_sim = {col: st.slider(f"{col}:", float(df[col].min()), float(df[col].max()), float(df[col].mean()), key=f"sim_{col}") for col in features}
+                inputs_sim = {col: st.slider(f"{col}:", float(df_p[col].min()), float(df_p[col].max()), float(df_p[col].mean()), key=f"sim_{col}") for col in features}
                 df_sim_input = pd.DataFrame([inputs_sim])
                 pred_raw = model.predict(df_sim_input)
-                # Extracción escalar definitiva con .item()
                 pred_sim = pred_raw.item() if hasattr(pred_raw, "item") else pred_raw
                 st.metric(label=f"{target} Estimado", value=f"{pred_sim:.2f}%")
 
             with tab5:
                 st.subheader("Protocolo FDI: Auditoría de Registros")
-                df_audit = df.copy().head(500)
-                y_pred_audit = y_pred[:len(df_audit)]
-                df_audit['Predicción'] = y_pred_audit
+                # Creamos un dataframe de auditoría basado en los datos balanceados finales
+                df_audit = X_final.copy()
+                df_audit[target] = y_final
+                df_audit['Predicción'] = y_pred
                 df_audit['Error'] = np.abs(df_audit[target] - df_audit['Predicción'])
                 
                 def logic_semaforo(e):
@@ -205,9 +210,8 @@ if archivo is not None:
                 
                 df_audit['Alerta FDI'] = df_audit['Error'].apply(logic_semaforo)
                 
-                st.write("**Tabla de registros históricos vs Digital Twin (Monitor FDI):**")
-                # CORRECCIÓN PANDAS 2.1: Se usa .map() en lugar de .applymap()
-                st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Alerta FDI', 'Dominio_GMD'] + features].style.map(
+                st.write("**Tabla de registros (incluye casos balanceados) vs Digital Twin:**")
+                st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Alerta FDI'] + features].head(1000).style.map(
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
                     subset=['Alerta FDI']
                 ))
