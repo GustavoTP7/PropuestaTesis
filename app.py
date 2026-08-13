@@ -19,7 +19,6 @@ st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
 @st.cache_data
 def cargar_datos(archivo):
     try:
-        # Soporte para CSV y Excel con limpieza de nombres de columnas [3]
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
         df = df.loc[:, ~df.columns.duplicated()] 
@@ -29,16 +28,16 @@ def cargar_datos(archivo):
         return None
 
 st.title("💎 Geomet Twin Pro: Inteligencia Operacional")
-st.markdown("**Digital Twin de Soporte a la Decisión (DSS)** para la optimización de procesos mineros [1, 4].")
+st.markdown("**Digital Twin de Soporte a la Decisión (DSS)** para optimización de recuperación.")
 
-# --- BARRA LATERAL (ENTRENAMIENTO GLOBAL) ---
+# --- BARRA LATERAL (ENTRENAMIENTO) ---
 with st.sidebar:
     st.header("⚙️ 1. Arquitectura de Datos")
     archivo = st.file_uploader("Subir registros históricos", type=["csv", "xlsx"])
     modo_ruido = st.radio("Filtro de Outliers [IQR]:", ["Data Original", "Depuración por IQR"])
     
     st.header("🤖 2. Motor de IA Autónomo")
-    tipo_modelo = st.selectbox("Algoritmo:", ["XGBoost", "CatBoost"])
+    tipo_modelo = st.selectbox("Seleccionar Algoritmo:", ["XGBoost", "CatBoost"])
     balancear = st.checkbox("Balanceo SMOTE (Casos Críticos)")
 
     st.divider()
@@ -48,7 +47,6 @@ if archivo is not None:
     df_raw = cargar_datos(archivo)
     
     if df_raw is not None:
-        # Filtrado de datos numéricos y eliminación de nulos [5]
         df_num = df_raw.select_dtypes(include=[np.number]).dropna()
         columnas = df_num.columns.tolist()
         
@@ -58,14 +56,11 @@ if archivo is not None:
             features = st.multiselect("Predictores (X):", [c for c in columnas if c != target], 
                                      default=[c for c in columnas if c != target])
 
-        # --- LÓGICA DE PROCESAMIENTO PERSISTENTE ---
+        # --- PROCESAMIENTO PERSISTENTE ---
         if ejecutar or 'model' in st.session_state:
             if ejecutar:
                 progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                # FASE 1: Limpieza por IQR [5]
-                status_text.text("Fase 1/5: Refinando datos...")
+                # FASE 1: Limpieza
                 df = df_num.copy()
                 if modo_ruido == "Depuración por IQR":
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
@@ -73,8 +68,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Inteligentes (Clusters UGM) [2, 6]
-                status_text.text("Fase 2/5: Identificando Unidades Geometalúrgicas...")
+                # FASE 2: Dominios (UGM)
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
                     if len(df) > k:
@@ -86,19 +80,17 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE (Balanceo de Casos Críticos)
+                # FASE 3: SMOTE (Híbrido X e Y para evitar KeyError)
                 X, y = df[features], df[target]
                 if balancear:
-                    status_text.text("Fase 3/5: Aplicando SMOTE...")
                     y_disc = pd.qcut(y, q=3, labels=False, duplicates='drop')
                     sm = SMOTE(random_state=42, k_neighbors=min(2, len(X)-1))
-                    X_with_y = X.copy(); X_with_y['__target_temp__'] = y
+                    X_with_y = X.copy(); X_with_y['__target__'] = y
                     X_res, _ = sm.fit_resample(X_with_y, y_disc)
-                    y, X = X_res['__target_temp__'], X_res.drop(columns=['__target_temp__'])
+                    y, X = X_res['__target__'], X_res.drop(columns=['__target__'])
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento de IA con Early Stopping [7, 8]
-                status_text.text(f"Fase 4/5: Entrenando cerebro {tipo_modelo}...")
+                # FASE 4: Entrenamiento
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
                     model = xgb.XGBRegressor(n_estimators=500, learning_rate=0.05, max_depth=6, random_state=42)
@@ -108,80 +100,60 @@ if archivo is not None:
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
                 progress_bar.progress(80)
 
-                # FASE 5: Validación Cruzada y Métricas [3, 9]
-                status_text.text("Fase 5/5: Validando Digital Twin...")
+                # FASE 5: Validación Cruzada
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # Persistencia de datos en la sesión
                 st.session_state.model = model
                 st.session_state.df_p = df
                 st.session_state.y_pred = y_pred_cv
-                st.session_state.metrics = (r2_score(y, y_pred_cv), mean_absolute_error(y, y_pred_cv), 
-                                           np.sqrt(mean_squared_error(y, y_pred_cv)), 
-                                           mean_absolute_percentage_error(y, y_pred_cv) * 100)
+                st.session_state.metrics = (r2_score(y, y_pred_cv), mean_absolute_error(y, y_pred_cv), np.sqrt(mean_squared_error(y, y_pred_cv)), mean_absolute_percentage_error(y, y_pred_cv) * 100)
                 st.session_state.X_f, st.session_state.y_f = X, y
-
                 progress_bar.progress(100)
-                time.sleep(0.5)
-                status_text.empty(); progress_bar.empty()
+                time.sleep(0.5); progress_bar.empty()
 
-            # Recuperar datos guardados para mostrar en pestañas
             model, df_p = st.session_state.model, st.session_state.df_p
             y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
             r2, mae, rmse, mape = st.session_state.metrics
             X_f = st.session_state.X_f
 
-            tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-                "📈 Datos & Clusters", "📊 Multivariante", "🎯 Precisión", "🎛️ Simulador", "🚨 Monitor FDI", "🧠 XAI"
-            ])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Datos", "📊 Variables", "🎯 Precisión", "🎛️ Simulador", "🚨 Monitor FDI"])
 
             with tab1:
-                st.subheader("Caracterización de Unidades Geometalúrgicas (UGM) [2]")
+                st.subheader("Caracterización de Unidades Geometalúrgicas (UGM)")
                 st.dataframe(df_p.groupby('Dominio_GMD')[features + [target]].mean().style.background_gradient(cmap='viridis'))
                 c1, c2 = st.columns(2)
-                with c1:
-                    vx = st.selectbox("Eje X:", df_p.columns, key="v_x")
-                    vy = st.selectbox("Eje Y:", df_p.columns, index=columnas.index(target), key="v_y")
-                    if st.button("🔄 Actualizar Gráfico"):
-                        if vx == vy: st.session_state.fig_exp = px.histogram(df_p, x=vx, color='Dominio_GMD')
-                        else: st.session_state.fig_exp = px.scatter(df_p, x=vx, y=vy, color='Dominio_GMD', trendline="ols")
-                with c2:
-                    if 'fig_exp' in st.session_state: st.plotly_chart(st.session_state.fig_exp, use_container_width=True)
+                vx = c1.selectbox("Eje X:", df_p.columns, key="v_x")
+                vy = c1.selectbox("Eje Y:", df_p.columns, index=columnas.index(target), key="v_y")
+                if c1.button("🔄 Actualizar Gráfico"):
+                    st.session_state.fig_exp = px.scatter(df_p, x=vx, y=vy, color='Dominio_GMD', trendline="ols") if vx != vy else px.histogram(df_p, x=vx, color='Dominio_GMD')
+                if 'fig_exp' in st.session_state: c2.plotly_chart(st.session_state.fig_exp, use_container_width=True)
 
             with tab2:
-                c_heat, c_imp = st.columns(2)
-                with c_heat:
-                    st.write("**Mapa de Interdependencia (Heatmap) [5]**")
-                    st.plotly_chart(px.imshow(df_p[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
-                with c_imp:
-                    st.write("**Ranking de Importancia de Variables [6]**")
-                    imp = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.get_feature_importance()
-                    st.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
+                ch, ci = st.columns(2)
+                ch.write("**Heatmap de Correlación**")
+                ch.plotly_chart(px.imshow(df_p[[target] + features].corr(), text_auto=".2f", color_continuous_scale="RdBu_r"), use_container_width=True)
+                ci.write("**Importancia de Atributos (IA)**")
+                imp = model.feature_importances_ if hasattr(model, 'feature_importances_') else model.get_feature_importance()
+                ci.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
 
             with tab3:
-                st.subheader("Evaluación de Fidelidad Predictiva [3, 9]")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("Error (MAE)", f"{mae:.3f}")
                 m3.metric("Riesgo (RMSE)", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
-                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Realidad', 'y': 'Digital Twin'}, 
-                                         trendline="ols", title="Ajuste Real vs Digital"), use_container_width=True)
+                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Real', 'y': 'Digital'}, trendline="ols", title="Fidelidad Real vs Digital"), use_container_width=True)
 
             with tab4:
-                st.subheader("🎛️ Centro de Control y Optimización Prescriptiva [1]")
-                col_ctrl, col_res = st.columns([10, 11])
+                st.subheader("🎛️ Centro de Optimización Prescriptiva")
+                col_ctrl, col_res = st.columns()
                 with col_ctrl:
                     st.info("🎮 **Ajuste Manual**")
                     inputs_sim = {col: st.slider(f"{col}", float(df_p[col].min()), float(df_p[col].max()), float(df_p[col].mean()), key=f"s_{col}") for col in features}
-                    st.divider()
                     btn_opt = st.button("🚀 ENCONTRAR OPERACIÓN ÓPTIMA", use_container_width=True, type="primary")
 
                 with col_res:
-                    # Simulación manual
                     pred_manual = model.predict(pd.DataFrame([inputs_sim])).item()
-                    
                     if btn_opt:
-                        # Búsqueda estocástica de máximos (Monte Carlo)
                         rand_data = pd.DataFrame({c: np.random.uniform(df_p[c].min(), df_p[c].max(), 1000) for c in features})
                         preds_opt = model.predict(rand_data)
                         top_idx = np.argsort(preds_opt)[-5:][::-1]
@@ -189,27 +161,26 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # CORRECCIÓN DE LA LÍNEA 201: Se especifica  para convertir la mejor configuración
+                        # CORRECCIÓN AQUÍ: Se usa  para extraer la mejor fila
                         mejor_cfg = st.session_state.top_5.iloc.to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
                         
                         cont = st.container(border=True)
-                        c1, c2 = cont.columns(2)
-                        c1.metric("Recuperación Actual", f"{pred_manual:.2f}%")
-                        c2.metric("Máximo Técnico", f"{mejor_val:.2f}%", delta=f"{ganancia:.2f}%")
+                        mc1, mc2 = cont.columns(2)
+                        mc1.metric("Recuperación Actual", f"{pred_manual:.2f}%")
+                        mc2.metric("Máximo Técnico", f"{mejor_val:.2f}%", delta=f"{ganancia:.2f}%")
                         
-                        st.write("### 🥇 Top 5 Escenarios Recomendados [1]")
-                        st.dataframe(st.session_state.top_5.style.background_gradient(cmap='Blues'), use_container_width=True)
+                        st.write("### 🥇 Top 5 Escenarios Recomendados")
+                        st.dataframe(st.session_state.top_5.style.background_gradient(subset=['Recuperación_Estimada'], cmap='Blues'), use_container_width=True)
                         
-                        fig = go.Figure()
-                        fig.add_trace(go.Bar(name='Manual', x=features, y=[inputs_sim[f] for f in features]))
-                        fig.add_trace(go.Bar(name='Óptimo', x=features, y=[mejor_cfg[f] for f in features]))
-                        fig.update_layout(title="Comparativa de Set-Points: Manual vs Óptimo", barmode='group', height=350)
-                        st.plotly_chart(fig, use_container_width=True)
+                        fig_comp = go.Figure()
+                        fig_comp.add_trace(go.Bar(name='Manual', x=features, y=[inputs_sim[f] for f in features]))
+                        fig_comp.add_trace(go.Bar(name='Óptimo', x=features, y=[mejor_cfg[f] for f in features]))
+                        fig_comp.update_layout(title="Comparativa: Manual vs Óptimo", barmode='group', height=350)
+                        st.plotly_chart(fig_comp, use_container_width=True)
 
             with tab5:
-                st.subheader("Protocolo FDI: Auditoría de Registros [4]")
                 df_audit = X_f.copy(); df_audit[target], df_audit['Predicción'] = y_f, y_pred
                 df_audit['Error'] = np.abs(df_audit[target] - df_audit['Predicción'])
                 def sem(e): return "🟢 Normal" if e <= mae else ("🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía")
@@ -218,15 +189,7 @@ if archivo is not None:
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
                     subset=['Estado']
                 ))
-
-            with tab6:
-                st.subheader("IA Explicable (Atribución Tecnológica) [12, 13]")
-                X_s = X_f.sample(min(100, len(X_f)))
-                explainer = shap.Explainer(model, X_s)
-                shap_v = explainer(X_s)
-                fig_s, _ = plt.subplots(); shap.summary_plot(shap_v, X_s, show=False)
-                st.pyplot(fig_s)
         else:
-            st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar datos.")
+            st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital'.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
