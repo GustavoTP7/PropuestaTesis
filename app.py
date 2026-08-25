@@ -22,7 +22,7 @@ def cargar_datos(archivo):
         # Carga dinámica compatible con Excel y CSV usando Pandas
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
-        df = df.loc[:, ~df.columns.duplicated()] # Limpieza de nombres duplicados
+        df = df.loc[:, ~df.columns.duplicated()] # Evita duplicados de nombres de columnas
         return df
     except Exception as e:
         st.error(f"Error en la ingesta de datos: {e}")
@@ -68,7 +68,7 @@ if archivo is not None:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # FASE 1: Depuración IQR para mejorar fidelidad [1]
+                # FASE 1: Depuración IQR para mejorar fidelidad
                 status_text.text("Fase 1/5: Refinando datos...")
                 df = df_num.copy()
                 if modo_ruido == "Depuración por IQR":
@@ -77,7 +77,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering [1]
+                # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -90,7 +90,7 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE para predecir caídas críticas [1]
+                # FASE 3: SMOTE para predecir caídas críticas
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -101,7 +101,7 @@ if archivo is not None:
                     y, X = X_res['__t__'], X_res.drop(columns=['__t__'])
                 progress_bar.progress(60)
 
-                # FASE 4: Entrenamiento del motor de IA [1]
+                # FASE 4: Entrenamiento del motor de IA
                 status_text.text(f"Fase 4/5: Entrenando {tipo_modelo}...")
                 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
                 if tipo_modelo == "XGBoost":
@@ -112,7 +112,7 @@ if archivo is not None:
                     model.fit(X_train, y_train, eval_set=(X_val, y_val))
                 progress_bar.progress(80)
 
-                # FASE 5: Validación Cruzada (K-Fold) [1]
+                # FASE 5: Validación Cruzada (K-Fold)
                 status_text.text("Fase 5/5: Validando Digital Twin...")
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
@@ -175,7 +175,7 @@ if archivo is not None:
                 with col_res:
                     pred_manual = model.predict(pd.DataFrame([inputs_sim])).item()
                     if btn_opt:
-                        # Búsqueda estocástica de Monte Carlo para set-points [1]
+                        # Búsqueda estocástica de Monte Carlo para set-points
                         rand_data = pd.DataFrame({c: np.random.uniform(df_p[c].min(), df_p[c].max(), 1000) for c in features})
                         preds_opt = model.predict(rand_data)
                         top_idx = np.argsort(preds_opt)[-5:][::-1]
@@ -183,7 +183,7 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # --- LÍNEA GANADORA QUE SOLUCIONÓ EL PROBLEMA ---
+                        # --- LÍNEA GANADORA QUE SOLUCIONÓ EL PROBLEMA DE PANDAS ---
                         mejor_cfg = st.session_state.top_5.head(1).squeeze().to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
@@ -229,12 +229,15 @@ if archivo is not None:
                             customdata=[f"{mejor_cfg[f]:.2f}" for f in features]
                         ))
 
+                        # --- CORRECCIÓN DE SEGURIDAD CONTRA EL PARSER: Uso de variables tipo float ---
+                        rango_escala_y = [0.0, 100.0]
+
                         fig_comp.update_layout(
                             title="Comparativa de Set-Points (Normalizado: 0% a 100% de su Rango Operativo)", 
                             barmode='group', 
                             height=380,
                             yaxis_title="Posición en el Rango (%)",
-                            yaxis=dict(range=[2])
+                            yaxis=dict(range=rango_escala_y)
                         )
                         st.plotly_chart(fig_comp, use_container_width=True)
 
@@ -250,7 +253,7 @@ if archivo is not None:
                 ))
 
             with tab6:
-                st.subheader("IA Explicable (XAI) via SHAP [1]")
+                st.subheader("IA Explicable (XAI) via SHAP")
                 X_s = X_f.sample(min(100, len(X_f)))
                 explainer = shap.Explainer(model, X_s)
                 shap_v = explainer(X_s)
