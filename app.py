@@ -184,7 +184,7 @@ if archivo is not None:
                     
                     if 'top_5' in st.session_state:
                         # --- CORRECCIÓN GARANTIZADA: Se añade  para seleccionar la mejor fila ---
-                        mejor_cfg = st.session_state.top_5.iloc.to_dict()
+                        mejor_cfg = st.session_state.top_5.head(1).squeeze().to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
                         
