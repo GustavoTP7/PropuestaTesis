@@ -22,7 +22,7 @@ def cargar_datos(archivo):
         # Carga dinámica compatible con Excel y CSV usando Pandas
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
-        df = df.loc[:, ~df.columns.duplicated()] # Limpieza de nombres duplicados
+        df = df.loc[:, ~df.columns.duplicated()] # Limpieza de nombres duplicados [1]
         return df
     except Exception as e:
         st.error(f"Error en la ingesta de datos: {e}")
@@ -77,7 +77,7 @@ if archivo is not None:
                     df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
-                # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering
+                # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering [2]
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
@@ -90,7 +90,7 @@ if archivo is not None:
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
 
-                # FASE 3: SMOTE para predecir caídas críticas
+                # FASE 3: SMOTE para predecir caídas críticas [3, 4]
                 X, y = df[features], df[target]
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -117,7 +117,7 @@ if archivo is not None:
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # Guardado en Estado de Sesión para fluidez de interfaz
+                # Guardado en Estado de Sesión para fluidez de la app
                 st.session_state.model = model
                 st.session_state.df_p = df
                 st.session_state.y_pred = y_pred_cv
@@ -183,7 +183,7 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # --- CORRECCIÓN GARANTIZADA: Se añade  para seleccionar la fila 1 ---
+                        # --- CORRECCIÓN GARANTIZADA: Se añade  para seleccionar la mejor fila ---
                         mejor_cfg = st.session_state.top_5.iloc.to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
