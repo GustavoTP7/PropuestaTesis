@@ -78,7 +78,7 @@ if archivo is not None:
                 if modo_ruido == "Depuración por IQR":
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
                     IQR = Q3 - Q1
-                    df = df[~((df &lt; (Q1 - 1.5 * IQR)) | (df &gt; (Q3 + 1.5 * IQR))).any(axis=1)]
+                    df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
                 # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering
