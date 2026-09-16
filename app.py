@@ -1,3 +1,4 @@
+```
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,7 +6,13 @@ import xgboost as xgb
 from catboost import CatBoostRegressor
 import shap
 from sklearn.model_selection import KFold, cross_val_predict, train_test_split
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error, silhouette_score
+from sklearn.metrics import (
+    r2_score, 
+    mean_squared_error, 
+    mean_absolute_error, 
+    mean_absolute_percentage_error, 
+    silhouette_score
+)
 from sklearn.cluster import KMeans
 from imblearn.over_sampling import SMOTE
 import plotly.express as px
@@ -19,10 +26,10 @@ st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
 @st.cache_data
 def cargar_datos(archivo):
     try:
-        # Carga dinámica compatible con Excel y CSV usando Pandas
+        # Carga dinámica compatible con Excel y CSV
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
-        df = df.loc[:, ~df.columns.duplicated()] # Evita duplicados de nombres de columnas
+        df = df.loc[:, ~df.columns.duplicated()] # Limpieza de duplicados
         return df
     except Exception as e:
         st.error(f"Error en la ingesta de datos: {e}")
@@ -45,14 +52,12 @@ with st.sidebar:
     balancear = st.checkbox("Balanceo SMOTE (Casos Críticos)")
 
     st.divider()
-    # Botón principal para generar el Gemelo Digital
     ejecutar = st.button("🚀 Iniciar Simulación Digital", use_container_width=True, type="primary")
 
 if archivo is not None:
     df_raw = cargar_datos(archivo)
     
     if df_raw is not None:
-        # Filtrado inicial de datos numéricos
         df_num = df_raw.select_dtypes(include=[np.number]).dropna()
         columnas = df_num.columns.tolist()
         
@@ -68,24 +73,24 @@ if archivo is not None:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # FASE 1: Depuración IQR para mejorar fidelidad
+                # FASE 1: Depuración IQR
                 status_text.text("Fase 1/5: Refinando datos...")
                 df = df_num.copy()
                 if modo_ruido == "Depuración por IQR":
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
                     IQR = Q3 - Q1
-                    df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
+                    df = df[~((df &lt; (Q1 - 1.5 * IQR)) | (df &gt; (Q3 + 1.5 * IQR))).any(axis=1)]
                 progress_bar.progress(20)
 
                 # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
-                    if len(df) > k:
+                    if len(df) &gt; k:
                         km = KMeans(n_clusters=k, random_state=42, n_init=10)
                         labels = km.fit_predict(df)
                         score = silhouette_score(df, labels)
-                        if score > best_score: best_score, best_k = score, k
+                        if score &gt; best_score: best_score, best_k = score, k
                 kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
@@ -117,7 +122,7 @@ if archivo is not None:
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
                 
-                # Guardado en Estado de Sesión para fluidez de interfaz
+                # Guardado en Estado de Sesión
                 st.session_state.model = model
                 st.session_state.df_p = df
                 st.session_state.y_pred = y_pred_cv
@@ -157,11 +162,58 @@ if archivo is not None:
                 ci.plotly_chart(px.bar(pd.DataFrame({'V': features, 'I': imp}).sort_values('I'), x='I', y='V', orientation='h'), use_container_width=True)
 
             with tab3:
-                st.subheader("Fidelidad Predictiva del Gemelo Digital")
+                st.subheader("🎯 Fidelidad Predictiva del Gemelo Digital")
+                
+                # 1. Métricas Globales
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Fidelidad (R²)", f"{r2:.3f}"); m2.metric("Error (MAE)", f"{mae:.3f}")
-                m3.metric("Riesgo (RMSE)", f"{rmse:.3f}"); m4.metric("Error Relativo", f"{mape:.2f}%")
-                st.plotly_chart(px.scatter(x=y_f, y=y_pred, labels={'x': 'Realidad', 'y': 'Digital'}, trendline="ols"), use_container_width=True)
+                m1.metric("Fidelidad Global (R²)", f"{r2:.3f}")
+                m2.metric("Error Global (MAE)", f"{mae:.3f}")
+                m3.metric("Riesgo Global (RMSE)", f"{rmse:.3f}")
+                m4.metric("Error Relativo Global (MAPE)", f"{mape:.2f}%")
+                
+                st.divider()
+                
+                # 2. Desglose Diferenciado por UGM / Dominio
+                st.subheader("📊 Evaluación de Desempeño por Unidad Geometalúrgica (UGM)")
+                st.markdown("Cada UGM posee una respuesta metalúrgica distinta. A continuación se evalúa la precisión del modelo dentro de cada dominio:")
+                
+                metrics_ugm = []
+                for dom in sorted(df_p['Dominio_GMD'].unique()):
+                    idx = (df_p['Dominio_GMD'] == dom)
+                    y_real_ugm = y_f[idx]
+                    y_pred_ugm = y_pred[idx]
+                    
+                    if len(y_real_ugm) &gt; 1:
+                        r2_u = r2_score(y_real_ugm, y_pred_ugm)
+                        mae_u = mean_absolute_error(y_real_ugm, y_pred_ugm)
+                        rmse_u = np.sqrt(mean_squared_error(y_real_ugm, y_pred_ugm))
+                        mape_u = mean_absolute_percentage_error(y_real_ugm, y_pred_ugm) * 100
+                        
+                        metrics_ugm.append({
+                            "UGM / Dominio": f"Dominio {dom}",
+                            "N° Muestras": len(y_real_ugm),
+                            "R² (Fidelidad)": round(r2_u, 3),
+                            "MAE (% Rec)": round(mae_u, 3),
+                            "RMSE": round(rmse_u, 3),
+                            "MAPE (%)": f"{mape_u:.2f}%"
+                        })
+                
+                df_metrics_ugm = pd.DataFrame(metrics_ugm)
+                st.dataframe(
+                    df_metrics_ugm.style.background_gradient(subset=["R² (Fidelidad)"], cmap="RdYlGn"),
+                    use_container_width=True
+                )
+                
+                st.plotly_chart(
+                    px.scatter(
+                        x=y_f, y=y_pred, 
+                        color=df_p['Dominio_GMD'].astype(str),
+                        labels={'x': 'Recuperación Real (%)', 'y': 'Recuperación Digital (%)', 'color': 'UGM'},
+                        title="Comparativa Real vs Digital por Dominio UGM",
+                        trendline="ols"
+                    ), 
+                    use_container_width=True
+                )
 
             with tab4:
                 st.subheader("🎛️ Centro de Optimización Prescriptiva")
@@ -175,7 +227,6 @@ if archivo is not None:
                 with col_res:
                     pred_manual = model.predict(pd.DataFrame([inputs_sim])).item()
                     if btn_opt:
-                        # Búsqueda estocástica de Monte Carlo para set-points
                         rand_data = pd.DataFrame({c: np.random.uniform(df_p[c].min(), df_p[c].max(), 1000) for c in features})
                         preds_opt = model.predict(rand_data)
                         top_idx = np.argsort(preds_opt)[-5:][::-1]
@@ -183,7 +234,6 @@ if archivo is not None:
                         st.session_state.top_5['Recuperación_Estimada'] = preds_opt[top_idx]
                     
                     if 'top_5' in st.session_state:
-                        # --- LÍNEA GANADORA QUE SOLUCIONÓ EL PROBLEMA DE PANDAS ---
                         mejor_cfg = st.session_state.top_5.head(1).squeeze().to_dict()
                         mejor_val = mejor_cfg.pop('Recuperación_Estimada')
                         ganancia = mejor_val - pred_manual
@@ -196,40 +246,37 @@ if archivo is not None:
                         st.write("### 🥇 Top 5 Escenarios Recomendados")
                         st.dataframe(st.session_state.top_5.style.background_gradient(subset=['Recuperación_Estimada'], cmap='Blues'), use_container_width=True)
                         
-                        # --- NORMALIZACIÓN VISUAL (MIN-MAX SCALING) ---
+                        # NORMALIZACIÓN VISUAL MIN-MAX
                         y_manual_norm = []
                         y_opt_norm = []
 
                         for f in features:
                             f_min = float(df_p[f].min())
                             f_max = float(df_p[f].max())
-                            rango = f_max - f_min if (f_max - f_min) > 0 else 1
+                            rango = f_max - f_min if (f_max - f_min) &gt; 0 else 1
                             
-                            # Fórmula de Normalización para llevarlo a porcentaje (0-100%)
                             val_man_norm = ((inputs_sim[f] - f_min) / rango) * 100
                             val_opt_norm = ((mejor_cfg[f] - f_min) / rango) * 100
                             
                             y_manual_norm.append(val_man_norm)
                             y_opt_norm.append(val_opt_norm)
 
-                        # Graficamos con los valores normalizados, pero mostrando el valor real en etiquetas dinámicas
                         fig_comp = go.Figure()
                         fig_comp.add_trace(go.Bar(
                             name='Manual', 
                             x=features, 
                             y=y_manual_norm, 
-                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)<extra></extra>",
+                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)",
                             customdata=[f"{inputs_sim[f]:.2f}" for f in features]
                         ))
                         fig_comp.add_trace(go.Bar(
                             name='Óptimo', 
                             x=features, 
                             y=y_opt_norm, 
-                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)<extra></extra>",
+                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)",
                             customdata=[f"{mejor_cfg[f]:.2f}" for f in features]
                         ))
 
-                        # --- CORRECCIÓN DE SEGURIDAD CONTRA EL PARSER: Uso de variables tipo float ---
                         rango_escala_y = [0.0, 100.0]
 
                         fig_comp.update_layout(
@@ -245,7 +292,7 @@ if archivo is not None:
                 st.subheader("Protocolo FDI: Auditoría de Turnos")
                 df_audit = X_f.copy(); df_audit[target], df_audit['Predicción'] = y_f, y_pred
                 df_audit['Error'] = np.abs(df_audit[target] - df_audit['Predicción'])
-                def sem(e): return "🟢 Normal" if e <= mae else ("🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía")
+                def sem(e): return "🟢 Normal" if e &lt;= mae else ("🟡 Advertencia" if e &lt;= 2*mae else "🔴 Anomalía")
                 df_audit['Estado'] = df_audit['Error'].apply(sem)
                 st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Estado'] + features].head(500).style.map(
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
@@ -263,3 +310,5 @@ if archivo is not None:
             st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar los datos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
+
+```
