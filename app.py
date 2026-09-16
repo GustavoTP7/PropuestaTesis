@@ -1,4 +1,3 @@
-```
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -310,5 +309,3 @@ if archivo is not None:
             st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar los datos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
-
-```
