@@ -89,7 +89,7 @@ if archivo is not None:
                         km = KMeans(n_clusters=k, random_state=42, n_init=10)
                         labels = km.fit_predict(df)
                         score = silhouette_score(df, labels)
-                        if score &gt; best_score: best_score, best_k = score, k
+                        if score > best_score: best_score, best_k = score, k
                 kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df)
                 progress_bar.progress(40)
@@ -182,7 +182,7 @@ if archivo is not None:
                     y_real_ugm = y_f[idx]
                     y_pred_ugm = y_pred[idx]
                     
-                    if len(y_real_ugm) &gt; 1:
+                    if len(y_real_ugm) > 1:
                         r2_u = r2_score(y_real_ugm, y_pred_ugm)
                         mae_u = mean_absolute_error(y_real_ugm, y_pred_ugm)
                         rmse_u = np.sqrt(mean_squared_error(y_real_ugm, y_pred_ugm))
@@ -252,7 +252,7 @@ if archivo is not None:
                         for f in features:
                             f_min = float(df_p[f].min())
                             f_max = float(df_p[f].max())
-                            rango = f_max - f_min if (f_max - f_min) &gt; 0 else 1
+                            rango = f_max - f_min if (f_max - f_min) > 0 else 1
                             
                             val_man_norm = ((inputs_sim[f] - f_min) / rango) * 100
                             val_opt_norm = ((mejor_cfg[f] - f_min) / rango) * 100
@@ -265,14 +265,14 @@ if archivo is not None:
                             name='Manual', 
                             x=features, 
                             y=y_manual_norm, 
-                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)",
+                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)<extra></extra>",
                             customdata=[f"{inputs_sim[f]:.2f}" for f in features]
                         ))
                         fig_comp.add_trace(go.Bar(
                             name='Óptimo', 
                             x=features, 
                             y=y_opt_norm, 
-                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)",
+                            hovertemplate="%{x}: <b>%{customdata}</b> (rango: %{y:.1f}%)<extra></extra>",
                             customdata=[f"{mejor_cfg[f]:.2f}" for f in features]
                         ))
 
@@ -291,7 +291,7 @@ if archivo is not None:
                 st.subheader("Protocolo FDI: Auditoría de Turnos")
                 df_audit = X_f.copy(); df_audit[target], df_audit['Predicción'] = y_f, y_pred
                 df_audit['Error'] = np.abs(df_audit[target] - df_audit['Predicción'])
-                def sem(e): return "🟢 Normal" if e &lt;= mae else ("🟡 Advertencia" if e &lt;= 2*mae else "🔴 Anomalía")
+                def sem(e): return "🟢 Normal" if e <= mae else ("🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía")
                 df_audit['Estado'] = df_audit['Error'].apply(sem)
                 st.dataframe(df_audit[[target, 'Predicción', 'Error', 'Estado'] + features].head(500).style.map(
                     lambda x: "background-color: #90EE90" if x == "🟢 Normal" else ("background-color: #FFD700" if x == "🟡 Advertencia" else ("background-color: #F08080" if x == "🔴 Anomalía" else "")),
