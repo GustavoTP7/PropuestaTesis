@@ -85,7 +85,7 @@ if archivo is not None:
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
-                    if len(df) &gt; k:
+                    if len(df) > k:
                         km = KMeans(n_clusters=k, random_state=42, n_init=10)
                         labels = km.fit_predict(df)
                         score = silhouette_score(df, labels)
