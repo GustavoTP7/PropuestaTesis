@@ -28,6 +28,10 @@ def cargar_datos(archivo):
         # Carga dinámica compatible con Excel y CSV
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
+
+        # Eliminar columnas sin nombre, vacías o de índice implícito (ej. 'Unnamed: 0')
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed', case=False)]
+        df = df.loc[:, df.columns != '']
         df = df.loc[:, ~df.columns.duplicated()] # Limpieza de duplicados
         return df
     except Exception as e:
@@ -57,14 +61,32 @@ if archivo is not None:
     df_raw = cargar_datos(archivo)
 
     if df_raw is not None:
-        df_num = df_raw.select_dtypes(include=[np.number]).dropna()
-        columnas = df_num.columns.tolist()
+        # Detectar automáticamente columna de Fecha / ID / Turno
+        id_col = None
+        first_col = df_raw.columns[0]
+
+        for col in df_raw.columns:
+            col_lower = str(col).lower()
+            if any(kw in col_lower for kw in ['id', 'fecha', 'date', 'turno', 'time', 'timestamp', 'sample', 'muestra']):
+                id_col = col
+                break
+
+        if id_col is None and (not pd.api.types.is_numeric_dtype(df_raw[first_col]) or pd.api.types.is_datetime64_any_dtype(df_raw[first_col])):
+            id_col = first_col
+
+        # Seleccionar solo columnas numéricas para el entrenamiento de IA
+        columnas_num = df_raw.select_dtypes(include=[np.number]).columns.tolist()
+        if id_col in columnas_num:
+            columnas_num.remove(id_col)
 
         with st.sidebar:
             st.header("🎯 3. Configuración de Variables")
-            target = st.selectbox("Variable Objetivo (Y):", columnas, index=len(columnas)-1)
-            features = st.multiselect("Predictores (X):", [c for c in columnas if c != target],
-                                     default=[c for c in columnas if c != target])
+            target = st.selectbox("Variable Objetivo (Y):", columnas_num, index=len(columnas_num)-1)
+
+            # Predictores físicos numéricos
+            posibles_features = [c for c in columnas_num if c != target]
+            features = st.multiselect("Predictores (X):", [c for c in columnas_num if c != target],
+                                     default=posibles_features)
 
         # --- LÓGICA DE PERSISTENCIA Y ENTRENAMIENTO ---
         if ejecutar or 'model' in st.session_state:
@@ -72,25 +94,35 @@ if archivo is not None:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # FASE 1: Depuración IQR
+                # FASE 1: Preparación y Depuración IQR
                 status_text.text("Fase 1/5: Refinando datos...")
+                df_num = df_raw[columnas_num].dropna().reset_index(drop=True)
+
+                if id_col:
+                    id_series = df_raw.loc[df_num.index, id_col].astype(str).values
+                else:
+                    id_series = np.array([f"Fila_{i+1}" for i in range(len(df_num))])
+
                 df = df_num.copy()
+                mask = np.ones(len(df), dtype=bool)
                 if modo_ruido == "Depuración por IQR":
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
                     IQR = Q3 - Q1
-                    df = df[~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)]
-                df = df.reset_index(drop=True)
+                    mask = ~((df &lt; (Q1 - 1.5 * IQR)) | (df &gt; (Q3 + 1.5 * IQR))).any(axis=1)
+                    df = df[mask].reset_index(drop=True)
+
+                ids = id_series[mask]
                 progress_bar.progress(20)
 
                 # FASE 2: Dominios Geometalúrgicos (UGM) vía Clustering
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
-                    if len(df) > k:
+                    if len(df) &gt; k:
                         km = KMeans(n_clusters=k, random_state=42, n_init=10)
                         labels = km.fit_predict(df[features + [target]])
                         score = silhouette_score(df[features + [target]], labels)
-                        if score > best_score: best_score, best_k = score, k
+                        if score &gt; best_score: best_score, best_k = score, k
                 kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df[features + [target]])
                 progress_bar.progress(40)
@@ -99,6 +131,7 @@ if archivo is not None:
                 X = df[features]
                 y = df[target].values
                 dominios = df['Dominio_GMD'].values
+                id_f = ids
 
                 if balancear:
                     status_text.text("Fase 3/5: Aplicando SMOTE...")
@@ -112,6 +145,10 @@ if archivo is not None:
                     y = X_res['__t__'].values
                     dominios = np.round(X_res['__dom__'].values).astype(int)
                     X = X_res[features]
+
+                    n_sinteticos = len(X_res) - len(ids)
+                    if n_sinteticos &gt; 0:
+                        id_f = np.concatenate([ids, [f"SMOTE_{i+1}" for i in range(n_sinteticos)]])
                 progress_bar.progress(60)
 
                 # FASE 4: Entrenamiento del motor de IA
@@ -140,6 +177,8 @@ if archivo is not None:
                 st.session_state.X_f = X
                 st.session_state.y_f = y
                 st.session_state.dominios_f = dominios
+                st.session_state.id_f = id_f
+                st.session_state.id_col = id_col if id_col else "Fecha / ID Turno"
 
                 progress_bar.progress(100); time.sleep(0.5); status_text.empty(); progress_bar.empty()
 
@@ -147,6 +186,8 @@ if archivo is not None:
             model, df_p = st.session_state.model, st.session_state.df_p
             y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
             dominios_f = st.session_state.dominios_f
+            id_f = st.session_state.id_f
+            id_col_nombre = st.session_state.id_col
             r2, mae, rmse, mape = st.session_state.metrics
             X_f = st.session_state.X_f
 
@@ -159,7 +200,7 @@ if archivo is not None:
                 st.dataframe(df_p.groupby('Dominio_GMD')[features + [target]].mean().style.background_gradient(cmap='viridis'))
                 c1, c2 = st.columns(2)
                 vx = c1.selectbox("Eje X:", df_p.columns, key="v_x")
-                vy = c1.selectbox("Eje Y:", df_p.columns, index=columnas.index(target), key="v_y")
+                vy = c1.selectbox("Eje Y:", df_p.columns, index=columnas_num.index(target) if target in columnas_num else 0, key="v_y")
                 if c1.button("🔄 Actualizar Gráfico"):
                     st.session_state.fig_exp = px.scatter(df_p, x=vx, y=vy, color='Dominio_GMD', trendline="ols") if vx != vy else px.histogram(df_p, x=vx, color='Dominio_GMD')
                 if 'fig_exp' in st.session_state: c2.plotly_chart(st.session_state.fig_exp, use_container_width=True)
@@ -194,7 +235,7 @@ if archivo is not None:
                     y_real_ugm = y_f[idx]
                     y_pred_ugm = y_pred[idx]
 
-                    if len(y_real_ugm) > 1:
+                    if len(y_real_ugm) &gt; 1:
                         r2_u = r2_score(y_real_ugm, y_pred_ugm)
                         mae_u = mean_absolute_error(y_real_ugm, y_pred_ugm)
                         rmse_u = np.sqrt(mean_squared_error(y_real_ugm, y_pred_ugm))
@@ -265,7 +306,7 @@ if archivo is not None:
                         for f in features:
                             f_min = float(df_p[f].min())
                             f_max = float(df_p[f].max())
-                            rango = f_max - f_min if (f_max - f_min) > 0 else 1
+                            rango = f_max - f_min if (f_max - f_min) &gt; 0 else 1
 
                             val_man_norm = ((inputs_sim[f] - f_min) / rango) * 100
                             val_opt_norm = ((mejor_cfg[f] - f_min) / rango) * 100
@@ -303,17 +344,21 @@ if archivo is not None:
             with tab5:
                 st.subheader("🚨 Protocolo FDI: Auditoría de Turnos y Detección de Anomalías")
                 df_audit = pd.DataFrame(X_f, columns=features) if isinstance(X_f, np.ndarray) else X_f.copy()
+
+                # Insertar identificador de Fecha/Turno y Dominio UGM
                 df_audit.insert(0, 'UGM / Dominio', [f"Dominio {d}" for d in dominios_f])
+                df_audit.insert(0, id_col_nombre, id_f)
+
                 df_audit['Rec. Real (%)'] = y_f
                 df_audit['Rec. Digital (%)'] = y_pred
                 df_audit['Error Absoluto'] = np.abs(df_audit['Rec. Real (%)'] - df_audit['Rec. Digital (%)'])
 
                 def evaluar_semaforo(e):
-                    return "🟢 Normal" if e <= mae else ("🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía")
+                    return "🟢 Normal" if e &lt;= mae else ("🟡 Advertencia" if e &lt;= 2*mae else "🔴 Anomalía")
 
                 df_audit['Estado FDI'] = df_audit['Error Absoluto'].apply(evaluar_semaforo)
 
-                columnas_mostrar = ['UGM / Dominio', 'Estado FDI', 'Rec. Real (%)', 'Rec. Digital (%)', 'Error Absoluto'] + features
+                columnas_mostrar = [id_col_nombre, 'UGM / Dominio', 'Estado FDI', 'Rec. Real (%)', 'Rec. Digital (%)', 'Error Absoluto'] + features
 
                 st.dataframe(
                     df_audit[columnas_mostrar].head(500).style.map(
@@ -336,5 +381,3 @@ if archivo is not None:
             st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar los datos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
-
-
