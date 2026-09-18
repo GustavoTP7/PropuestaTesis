@@ -108,7 +108,7 @@ if archivo is not None:
                 if modo_ruido == "Depuración por IQR":
                     Q1, Q3 = df.quantile(0.25), df.quantile(0.75)
                     IQR = Q3 - Q1
-                    mask = ~((df &lt; (Q1 - 1.5 * IQR)) | (df &gt; (Q3 + 1.5 * IQR))).any(axis=1)
+                    mask = ~((df < (Q1 - 1.5 * IQR)) | (df > (Q3 + 1.5 * IQR))).any(axis=1)
                     df = df[mask].reset_index(drop=True)
 
                 ids = id_series[mask]
@@ -118,11 +118,11 @@ if archivo is not None:
                 status_text.text("Fase 2/5: Identificando UGM...")
                 best_k, best_score = 2, -1
                 for k in range(2, 6):
-                    if len(df) &gt; k:
+                    if len(df) > k:
                         km = KMeans(n_clusters=k, random_state=42, n_init=10)
                         labels = km.fit_predict(df[features + [target]])
                         score = silhouette_score(df[features + [target]], labels)
-                        if score &gt; best_score: best_score, best_k = score, k
+                        if score > best_score: best_score, best_k = score, k
                 kmeans_final = KMeans(n_clusters=best_k, random_state=42, n_init=10)
                 df['Dominio_GMD'] = kmeans_final.fit_predict(df[features + [target]])
                 progress_bar.progress(40)
@@ -147,7 +147,7 @@ if archivo is not None:
                     X = X_res[features]
 
                     n_sinteticos = len(X_res) - len(ids)
-                    if n_sinteticos &gt; 0:
+                    if n_sinteticos > 0:
                         id_f = np.concatenate([ids, [f"SMOTE_{i+1}" for i in range(n_sinteticos)]])
                 progress_bar.progress(60)
 
@@ -235,7 +235,7 @@ if archivo is not None:
                     y_real_ugm = y_f[idx]
                     y_pred_ugm = y_pred[idx]
 
-                    if len(y_real_ugm) &gt; 1:
+                    if len(y_real_ugm) > 1:
                         r2_u = r2_score(y_real_ugm, y_pred_ugm)
                         mae_u = mean_absolute_error(y_real_ugm, y_pred_ugm)
                         rmse_u = np.sqrt(mean_squared_error(y_real_ugm, y_pred_ugm))
@@ -306,7 +306,7 @@ if archivo is not None:
                         for f in features:
                             f_min = float(df_p[f].min())
                             f_max = float(df_p[f].max())
-                            rango = f_max - f_min if (f_max - f_min) &gt; 0 else 1
+                            rango = f_max - f_min if (f_max - f_min) > 0 else 1
 
                             val_man_norm = ((inputs_sim[f] - f_min) / rango) * 100
                             val_opt_norm = ((mejor_cfg[f] - f_min) / rango) * 100
@@ -354,7 +354,7 @@ if archivo is not None:
                 df_audit['Error Absoluto'] = np.abs(df_audit['Rec. Real (%)'] - df_audit['Rec. Digital (%)'])
 
                 def evaluar_semaforo(e):
-                    return "🟢 Normal" if e &lt;= mae else ("🟡 Advertencia" if e &lt;= 2*mae else "🔴 Anomalía")
+                    return "🟢 Normal" if e <= mae else ("🟡 Advertencia" if e <= 2*mae else "🔴 Anomalía")
 
                 df_audit['Estado FDI'] = df_audit['Error Absoluto'].apply(evaluar_semaforo)
 
@@ -381,3 +381,4 @@ if archivo is not None:
             st.info("💡 Configure los parámetros y pulse 'Iniciar Simulación Digital' para procesar los datos.")
 else:
     st.info("👈 Cargue el dataset histórico para iniciar el Digital Twin.")
+
