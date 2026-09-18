@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -131,7 +130,7 @@ if archivo is not None:
                 kf = KFold(n_splits=5, shuffle=True, random_state=42)
                 y_pred_cv = cross_val_predict(model, X, y, cv=kf)
 
-                # Guardado en Estado de Sesión (Numpy Arrays alineados)
+                # Guardado en Estado de Sesión
                 st.session_state.model = model
                 st.session_state.df_p = df
                 st.session_state.y_pred = y_pred_cv
