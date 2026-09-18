@@ -26,14 +26,11 @@ st.set_page_config(page_title="Geomet Twin Pro", layout="wide")
 @st.cache_data
 def cargar_datos(archivo):
     try:
-        # Carga dinámica compatible con Excel y CSV
         df = pd.read_csv(archivo) if archivo.name.endswith('.csv') else pd.read_excel(archivo)
         df.columns = df.columns.astype(str).str.strip()
-        
-        # Eliminar columnas sin nombre, vacías o de índice implícito (ej. 'Unnamed: 0')
         df = df.loc[:, ~df.columns.str.contains('^Unnamed', case=False)]
         df = df.loc[:, df.columns != '']
-        df = df.loc[:, ~df.columns.duplicated()] # Limpieza de duplicados
+        df = df.loc[:, ~df.columns.duplicated()]
         return df
     except Exception as e:
         st.error(f"Error en la ingesta de datos: {e}")
@@ -95,7 +92,8 @@ if archivo is not None:
                                      default=posibles_features)
 
         # --- LÓGICA DE PERSISTENCIA Y ENTRENAMIENTO ---
-        if ejecutar or 'model' in st.session_state:
+        # Verificación segura para evitar KeyError si la sesión guardaba un modelo anterior
+        if ejecutar or ('sub_models' in st.session_state and 'model' in st.session_state):
             if ejecutar:
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -145,7 +143,6 @@ if archivo is not None:
 
                 if transformar_log:
                     status_text.text("Fase 3/5: Normalizando distribuciones sesgadas...")
-                    # Aplicar log1p a columnas con sesgo alto (|skew| > 1.0) y no negativas
                     for c in features:
                         if df[c].min() >= 0 and abs(df[c].skew()) > 1.0:
                             X[c] = np.log1p(X[c])
@@ -240,17 +237,17 @@ if archivo is not None:
                 progress_bar.progress(100); time.sleep(0.5); status_text.empty(); progress_bar.empty()
 
             # --- RENDERIZADO DE PESTAÑAS ---
-            model = st.session_state.model
-            sub_models = st.session_state.sub_models
-            kmeans_final = st.session_state.kmeans_final
-            df_p = st.session_state.df_p
-            y_pred, y_f = st.session_state.y_pred, st.session_state.y_f
-            dominios_f = st.session_state.dominios_f
-            id_f = st.session_state.id_f
-            id_col_nombre = st.session_state.id_col
-            r2, mae, rmse, mape = st.session_state.metrics
-            X_f = st.session_state.X_f
-            transformar_log = st.session_state.transformar_log
+            model = st.session_state.get('model', None)
+            sub_models = st.session_state.get('sub_models', {})
+            kmeans_final = st.session_state.get('kmeans_final', None)
+            df_p = st.session_state.get('df_p', None)
+            y_pred, y_f = st.session_state.get('y_pred', None), st.session_state.get('y_f', None)
+            dominios_f = st.session_state.get('dominios_f', None)
+            id_f = st.session_state.get('id_f', None)
+            id_col_nombre = st.session_state.get('id_col', "Fecha / ID Turno")
+            r2, mae, rmse, mape = st.session_state.get('metrics', (0,0,0,0))
+            X_f = st.session_state.get('X_f', None)
+            transformar_log = st.session_state.get('transformar_log', False)
 
             # Función helper de predicción inteligente
             def predecir_muestra(df_input):
@@ -260,9 +257,7 @@ if archivo is not None:
                         if df_p[c].min() >= 0 and abs(df_p[c].skew()) > 1.0:
                             X_in[c] = np.log1p(X_in[c])
                 
-                # Asignar UGM aproximada si el modelo es por UGM
                 try:
-                    # Crear vector completo con target medio para kmeans
                     dummy_target = pd.DataFrame({target: [df_p[target].mean()]*len(df_input)})
                     X_target_dummy = pd.concat([df_input[features], dummy_target], axis=1)
                     dom_in = kmeans_final.predict(X_target_dummy)
